@@ -1,0 +1,31 @@
+# Ferramentas de desenvolvimento.
+#
+# ── POR QUE ESTA LISTA EXISTE SEPARADA ──────────────────────────
+#
+# O `pacman.txt` é gerado por `pacman -Qqen`, que lista só os pacotes
+# EXPLÍCITOS — os que você mandou instalar. O `nodejs` e o `npm` desta
+# máquina entraram como DEPENDÊNCIA de outro pacote, então não aparecem
+# lá: numa instalação nova eles só existiriam se algum outro pacote os
+# puxasse por acaso.
+#
+# Isso é frágil de um jeito silencioso. No dia em que a cadeia de
+# dependências mudar, a máquina nova sobe sem Node e ninguém entende por
+# quê — a lista estava "completa".
+#
+# Declarar aqui resolve: o que você USA fica registrado como intenção, e
+# não como efeito colateral da árvore de dependências de outra coisa.
+#
+# ── SOBRE PACOTES GLOBAIS DO npm ────────────────────────────────
+#
+# O TypeScript vem do repositório do Arch, e não de `npm i -g typescript`,
+# de propósito: o prefixo do npm nesta máquina é `/usr`, então todo
+# `npm -g` exigiria sudo e escreveria dentro do território do pacman —
+# dois gerenciadores mexendo nos mesmos arquivos.
+#
+# Se um dia precisar mesmo de global do npm, mude o prefixo primeiro:
+#     npm config set prefix "$HOME/.local"
+# Aí `npm i -g` passa a escrever em ~/.local/bin, que já está no PATH.
+
+nodejs
+npm
+typescript

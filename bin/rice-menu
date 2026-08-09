@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# ┌──────────────────────────────────────────────────────────────┐
+# │  Menu principal — inspirado no menu do Omarchy                │
+# └──────────────────────────────────────────────────────────────┘
+#
+#   rice-menu            abre na raiz          (SUPER + ALT + SPACE)
+#   rice-menu system     menu de energia       (SUPER + ESCAPE)
+#   rice-menu capture    menu de captura       (SUPER + CTRL + C)
+#   rice-menu toggle     menu de alternâncias  (SUPER + CTRL + O)
+#
+# Entradas que dependem de um programa não instalado simplesmente não
+# aparecem — nada de item quebrado no menu.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+# A sessão do Hyprland não herda ~/.local/bin no PATH, então o menu se
+# localiza sozinho e garante que os scripts irmãos sejam encontrados.
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+export PATH
+
+route="${1:-root}"
+
+have()  { command -v "$1" >/dev/null 2>&1; }
+run()   { setsid -f sh -c "$1" >/dev/null 2>&1; }
+float() { echo "kitty --class rice-float -e $1"; }
+
+declare -a L A
+
+reset_menu() { L=(); A=(); }
+add() { L+=("$1"); A+=("$2"); }
+back() { add "󰌍   $(txt menu.back)" "menu:root"; }
+
+pick() {
+  printf '%s\n' "${L[@]}" |
+    fuzzel --dmenu --index --prompt "$1" --lines "${#L[@]}" --width 32 2>/dev/null
+}
+
+# ── Raiz ────────────────────────────────────────────────────────
+build_root() {
+  reset_menu
+  add "󰀻   $(txt menu.apps)" "menu:apps"
+  add "󰖟   $(txt menu.webapps)"    "rice-webapp"
+  add "󰏖   $(txt menu.packages)"   "rice-pkg"
+  add "󰄀   $(txt menu.capture)"    "menu:capture"
+  add "󰔎   $(txt menu.toggle)"    "menu:toggle"
+  add "󰸌   $(txt menu.style)"      "menu:style"
+  add "󰒓   $(txt menu.settings)"     "menu:setup"
+  add "󰧑   $(txt menu.shortcuts)"     "rice-keybindings"
+  add "󰐥   $(txt menu.system)"     "menu:system"
+}
+
+# ── Aplicativos ─────────────────────────────────────────────────
+build_apps() {
+  reset_menu
+  add "󰍉   $(txt menu.searchapp)" "qs -p $HOME/.config/rice/shell ipc call island apps"
+  add "󰆍   $(txt menu.terminal)"          "uwsm app -- kitty"
+  add "󰖟   $(txt menu.browser)"         "uwsm app -- zen-browser"
+  add "󰉋   $(txt menu.files)"          "uwsm app -- nautilus"
+  have qalc && add "󰃬   Calculadora" "$(float qalc)"
+  have btop && add "󰘚   Monitor do sistema" "$(float btop)"
+  have cliphist && add "󰆒   Área de transferência" "rice-clipboard"
+  back
+}
+
+# ── Capturar ────────────────────────────────────────────────────
+build_capture() {
+  reset_menu
+  add "󰄀   $(txt menu.shot.area)"  "rice-screenshot region"
+  add "󰄀   $(txt menu.shot.screen)"      "rice-screenshot output"
+  add "󰄀   $(txt menu.shot.window)"    "rice-screenshot window"
+  have swappy && add "󰏫   Print para anotar" "rice-screenshot region --edit"
+  have hyprpicker && add "󰃉   Conta-gotas de cor" "pkill hyprpicker || hyprpicker -a"
+  if have wf-recorder; then
+    if pgrep -x wf-recorder >/dev/null 2>&1; then
+      add "󰓛   $(txt menu.rec.stop)" "pkill -INT -x wf-recorder; notify-send '$(txt notif.app.rec.done)'"
+    else
+      add "󰕧   $(txt menu.rec.start)" "rice-record"
+    fi
+  fi
+  back
+}
+
+# ── Alternar ────────────────────────────────────────────────────
+build_toggle() {
+  reset_menu
+  have qs && add "󰍜   A pill (barra)" \
+    "pkill -x qs || setsid -f qs -p $HOME/.config/rice/shell"
+  have qs && add "󰂛   Silenciar notificações" \
+    "qs -p $HOME/.config/rice/shell ipc call notif toggleSilence"
+  if have hyprsunset; then
+    if pgrep -x hyprsunset >/dev/null 2>&1; then
+      add "󰔎   $(txt menu.night.off)" "pkill hyprsunset; notify-send '$(txt notif.night)' '$(txt notif.night.off)'"
+    else
+      add "󰔎   $(txt menu.night.on)" "hyprsunset -t 4500; notify-send '$(txt notif.night)' '$(txt notif.night.on)'"
+    fi
+  fi
+  if have hypridle; then
+    if pgrep -x hypridle >/dev/null 2>&1; then
+      add "󰅶   $(txt menu.awake.on)" "pkill hypridle; notify-send '$(txt notif.autolock)' '$(txt notif.autolock.off)'"
+    else
+      add "󰅶   $(txt menu.awake.off)" "uwsm app -- hypridle; notify-send '$(txt notif.autolock)' '$(txt notif.autolock.on)'"
+    fi
+  fi
+  add "󰒓   $(txt menu.gaps)" "rice-toggle-gaps"
+  back
+}
+
+# ── Estilo ──────────────────────────────────────────────────────
+build_style() {
+  reset_menu
+  add "󰸌   $(txt menu.theme)" "rice-theme"
+  have qs && add "󰸉   Papel de parede" "qs -p $HOME/.config/rice/shell ipc call island papel"
+  add "󰏫   $(txt menu.appearance)" "$(float "micro $HOME/.config/hypr/looknfeel.lua")"
+  add "󰸲   $(txt menu.palette)" \
+    "$(float "micro $HOME/.config/rice/themes/\$(cat $HOME/.config/rice/current 2>/dev/null || echo tokyo-night).sh")"
+  add "󰑓   $(txt menu.reload)" "hyprctl reload && notify-send Hyprland '$(txt notif.hypr.reloaded)'"
+  back
+}
+
+# ── Ajustes ─────────────────────────────────────────────────────
+build_setup() {
+  reset_menu
+  add "󰕾   $(txt menu.audio)"       "rice-audio"
+  add "󰛳   $(txt menu.network)"        "rice-network"
+  add "󰍹   $(txt menu.monitors)"    "$(float "micro $HOME/.config/hypr/monitors.lua")"
+  add "󰌌   $(txt menu.shortcuts)"      "$(float "micro $HOME/.config/hypr/bindings.lua")"
+  add "󰌌   $(txt menu.keyboard)" "$(float "micro $HOME/.config/hypr/input.lua")"
+  add "󰑨   $(txt menu.startup)" "$(float "micro $HOME/.config/hypr/autostart.lua")"
+  add "󰀻   $(txt menu.defaultapps)" "$(float "micro $HOME/.config/hypr/apps.lua")"
+  back
+}
+
+# ── Sistema ─────────────────────────────────────────────────────
+build_system() {
+  reset_menu
+  add "󰌾   $(txt menu.lock)"   "loginctl lock-session"
+  add "󰤄   $(txt menu.suspend)"  "systemctl suspend"
+  add "󰍃   $(txt menu.logout)" "uwsm stop || hyprctl dispatch exit"
+  add "󰜉   $(txt menu.reboot)"  "systemctl reboot"
+  add "󰐥   $(txt menu.poweroff)"   "systemctl poweroff"
+  back
+}
+
+# ── Laço principal ──────────────────────────────────────────────
+pkill -x fuzzel 2>/dev/null && exit 0
+
+while true; do
+  case "$route" in
+    root)    build_root;    title="󰍜   Menu " ;;
+    apps)    build_apps;    title="󰀻   Aplicativos " ;;
+    capture) build_capture; title="󰄀   Capturar " ;;
+    toggle)  build_toggle;  title="󰔎   Alternar " ;;
+    style)   build_style;   title="󰸲   Estilo " ;;
+    setup)   build_setup;   title="󰒓   Ajustes " ;;
+    system)  build_system;  title="󰐥   Sistema " ;;
+    *)       echo "rice-menu: rota desconhecida '$route'" >&2; exit 2 ;;
+  esac
+
+  idx=$(pick "$title") || exit 0
+  [[ -z ${idx:-} ]] && exit 0
+
+  action="${A[$idx]}"
+  case "$action" in
+    menu:*) route="${action#menu:}" ;;
+    *)      run "$action"; exit 0 ;;
+  esac
+done

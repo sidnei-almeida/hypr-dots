@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# ┌──────────────────────────────────────────────────────────────┐
+# │  Instalar e remover programas pelo menu.                      │
+# └──────────────────────────────────────────────────────────────┘
+#
+#   rice-pkg              menu
+#   rice-pkg install      buscar e instalar (repos + AUR)
+#   rice-pkg remove       remover um programa que você instalou
+#
+# A instalação roda num terminal flutuante para você acompanhar a saída
+# e digitar a senha do sudo — o menu não tem como fazer isso sozinho.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+
+HELPER=paru
+command -v paru >/dev/null 2>&1 || HELPER=yay
+command -v "$HELPER" >/dev/null 2>&1 || HELPER=""
+
+# Terminal flutuante (a regra de janela para a classe rice-float está em
+# ~/.config/hypr/windows.lua). O `; read` segura a janela aberta no fim.
+in_terminal() {
+  setsid -f kitty --class rice-float -e bash -c "$1; echo; read -n1 -r -p 'Enter para fechar...'" \
+    >/dev/null 2>&1
+}
+
+ask() {
+  fuzzel --dmenu --prompt-only "$1" --width 46 2>/dev/null
+}
+
+do_install() {
+  local term
+  term=$(ask "Buscar:  ") || exit 0
+  [[ -z ${term:-} ]] && exit 0
+
+  notify-send -t 2000 "$(txt notif.app.searching)" "$(txt notif.pkg.searching "$term")"
+
+  local search_cmd="pacman -Ss"
+  [[ -n $HELPER ]] && search_cmd="$HELPER -Ss --limit 40"
+
+  local -a names=() labels=()
+  while IFS=$'\t' read -r name desc; do
+    [[ -z ${name:-} ]] && continue
+    names+=("$name")
+    labels+=("$(printf '%-28s %s' "${name##*/}" "$desc")")
+  done < <(
+    $search_cmd "$term" 2>/dev/null |
+      awk '
+        /^[^ \t]/ {
+          # linha do pacote: "repo/nome versao [tamanho] (grupo)"
+          split($1, a, " ")
+          pkg = $1
+          next
+        }
+        /^[ \t]+/ {
+          if (pkg != "") {
+            desc = $0
+            gsub(/^[ \t]+/, "", desc)
+            print pkg "\t" desc
+            pkg = ""
+          }
+        }
+      '
+  )
+
+  if [[ ${#names[@]} -eq 0 ]]; then
+    notify-send -u critical "$(txt notif.pkg.notfound)" "$(txt notif.pkg.nopackage "$term")"
+    exit 0
+  fi
+
+  local idx
+  idx=$(printf '%s\n' "${labels[@]}" |
+    fuzzel --dmenu --index --prompt "󰉉   " \
+      --placeholder "${#names[@]} resultados para \"$term\"" \
+      --lines 15 --width 78) || exit 0
+  [[ -z ${idx:-} ]] && exit 0
+
+  local pkg="${names[$idx]}"
+  in_terminal "${HELPER:-sudo pacman} -S ${pkg##*/}"
+}
+
+do_remove() {
+  # Só o que foi instalado explicitamente: dependências não entram na lista,
+  # senão é fácil remover algo que outro programa precisa.
+  local -a names=() labels=()
+  while read -r name ver; do
+    [[ -z ${name:-} ]] && continue
+    names+=("$name")
+    labels+=("$(printf '%-30s %s' "$name" "$ver")")
+  done < <(pacman -Qe 2>/dev/null)
+
+  local idx
+  idx=$(printf '%s\n' "${labels[@]}" |
+    fuzzel --dmenu --index --prompt "󰭌   " \
+      --placeholder "Remover qual? (${#names[@]} instalados por você)" \
+      --lines 15 --width 60) || exit 0
+  [[ -z ${idx:-} ]] && exit 0
+
+  in_terminal "${HELPER:-sudo pacman} -Rns ${names[$idx]}"
+}
+
+do_update() {
+  in_terminal "${HELPER:-sudo pacman} -Syu"
+}
+
+menu() {
+  local -a L=(
+    "󰉉   Instalar programa"
+    "󰭌   Remover programa"
+    "󰚯   Atualizar o sistema"
+  )
+
+  local idx
+  idx=$(printf '%s\n' "${L[@]}" |
+    fuzzel --dmenu --index --prompt "󰏖   " \
+      --placeholder "Programas..." --lines "${#L[@]}" --width 34) || exit 0
+  [[ -z ${idx:-} ]] && exit 0
+
+  case "$idx" in
+    0) do_install ;;
+    1) do_remove ;;
+    2) do_update ;;
+  esac
+}
+
+case "${1:-menu}" in
+  install) do_install ;;
+  remove)  do_remove ;;
+  update)  do_update ;;
+  menu)    menu ;;
+  *)       echo "$(txt cli.usage): rice-pkg [menu|install|remove|update]" >&2; exit 2 ;;
+esac

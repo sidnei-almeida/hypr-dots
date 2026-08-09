@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# Editor de cores: cria, nomeia, ajusta e apaga temas do usuário.
+#
+#   rice-cores mostrar               paleta em vigor, uma linha por papel
+#   rice-cores set ACCENT d4ab60     muda uma cor do tema do usuário
+#   rice-cores clonar [base] [nome]  novo tema a partir de outro
+#   rice-cores renomear <slug> <nome>
+#   rice-cores apagar <slug>
+#   rice-cores meus                  lista só os temas do usuário
+#
+# Os temas do usuário vivem em themes/*.sh, do lado dos de fábrica. Assim
+# aparecem na mesma lista, são trocáveis a quente e não precisam de
+# caminho especial em lugar nenhum do sistema.
+#
+# ANTES SÓ EXISTIA UM, chamado `personalizado.sh`, com NAME="Meu tema"
+# cravado. Clonar de novo sobrescrevia o anterior sem avisar — dava para
+# ter só uma variação de cada vez, e toda ela se chamava "Meu tema".
+# Agora cada clone é um arquivo próprio, com nome escolhido.
+#
+# COMO SE SABE QUAIS SÃO DO USUÁRIO: a linha `PROPRIO=sim` dentro do
+# arquivo. É marca no conteúdo e não no nome do arquivo, porque assim ela
+# sobrevive a renomear. E é o que impede `apagar` de destruir um tema de
+# fábrica: sem a marca, ele recusa.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+RICE="$HOME/.config/rice"
+THEMES="$RICE/themes"
+
+PAPEIS=(BG BG_ALT FG MUTED DIM ACCENT ACCENT2 OK WARN ERR)
+
+atual() { cat "$RICE/current" 2>/dev/null || echo samurai; }
+
+eh_proprio() { [[ -f $1 ]] && grep -qE '^PROPRIO=' "$1"; }
+
+# Lê a paleta de um arquivo de tema em subshell, para as variáveis dele
+# não vazarem para cá.
+ler_tema() {
+  local arq="$1"
+  ( NAME=""; for p in "${PAPEIS[@]}"; do eval "$p="; done
+    # shellcheck disable=SC1090
+    . "$arq"
+    printf 'NAME\t%s\n' "${NAME:-$(basename "$arq" .sh)}"
+    for p in "${PAPEIS[@]}"; do printf '%s\t%s\n' "$p" "${!p}"; done )
+}
+
+# Nome livre -> slug de arquivo.
+#
+# O nome que o usuário digita vira TÍTULO (NAME=) e nome de ARQUIVO, e os
+# dois têm exigências diferentes: o título aceita acento, espaço e
+# maiúscula; o arquivo precisa ser previsível na linha de comando, já que
+# é ele o argumento de `rice-theme set`.
+#
+# `iconv` derruba o acento em vez de apagar a letra — sem ele "Vermelhão"
+# viraria "vermelh" e o usuário não reconheceria o próprio tema na lista.
+slug() {
+  local s
+  s=$(printf '%s' "$1" | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null || printf '%s' "$1")
+  s=${s,,}
+  s=$(printf '%s' "$s" | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+  [[ -z $s ]] && s=meu-tema
+  printf '%s' "$s"
+}
+
+slug_livre() {
+  local base="$1" s="$1" n=2
+  while [[ -e "$THEMES/$s.sh" ]]; do s="$base-$n"; n=$((n + 1)); done
+  printf '%s' "$s"
+}
+
+clonar() {
+  local base="${1:-$(atual)}" nome="${2:-}"
+  local arq="$THEMES/$base.sh"
+  [[ -f $arq ]] || { echo "rice-cores: $(txt cli.theme.noexist "$base")" >&2; exit 1; }
+
+  # Sem nome dado, deriva do tema de origem. Melhor "Samurai (meu)" do
+  # que mais um "Meu tema": já diz de onde veio, e dois clones de bases
+  # diferentes não colidem.
+  if [[ -z $nome ]]; then
+    local titulo_base
+    titulo_base=$(ler_tema "$arq" | awk -F'\t' '$1=="NAME"{print $2}')
+    nome="${titulo_base:-$base} (meu)"
+  fi
+
+  local id; id=$(slug_livre "$(slug "$nome")")
+  local dest="$THEMES/$id.sh"
+
+  mkdir -p "$THEMES"
+  {
+    echo "# Tema do usuário, criado pelo painel de aparência."
+    echo "# Base: $base. Editável à mão ou pelo editor de cores."
+    echo "#"
+    echo "# A linha PROPRIO abaixo é o que marca este arquivo como seu."
+    echo "# Sem ela o painel não deixa apagá-lo — é essa marca que separa"
+    echo "# os temas do usuário dos de fábrica."
+    echo "PROPRIO=sim"
+    echo "NAME=\"$nome\""
+    while IFS=$'\t' read -r chave valor; do
+      [[ $chave == NAME ]] && continue
+      echo "$chave=$valor"
+    done < <(ler_tema "$arq")
+    # O papel de parede acompanha o clone: um tema com a paleta de um e o
+    # papel de outro nasce desencaixado, que é o oposto do que estes temas
+    # perseguem.
+    local wp
+    wp=$(grep -oP '^WALLPAPER=\K.*' "$arq" 2>/dev/null || true)
+    [[ -n ${wp:-} ]] && echo "WALLPAPER=$wp"
+    local pastas
+    pastas=$(grep -oP '^PASTAS=\K.*' "$arq" 2>/dev/null || true)
+    [[ -n ${pastas:-} ]] && echo "PASTAS=$pastas"
+  } > "$dest"
+
+  echo "$id"
+}
+
+# O tema que as edições de cor devem atingir.
+#
+# Se o tema em uso é do usuário, edita ele mesmo. Se é de fábrica, CLONA
+# antes — editar direto sobrescreveria um tema que não é do usuário, e ele
+# perderia o original sem ter pedido.
+alvo_edicao() {
+  local cur; cur=$(atual)
+  if eh_proprio "$THEMES/$cur.sh"; then
+    printf '%s' "$cur"
+  else
+    clonar "$cur"
+  fi
+}
+
+definir() {
+  local papel="${1^^}" cor="${2#\#}"
+  [[ " ${PAPEIS[*]} " == *" $papel "* ]] || {
+    echo "rice-cores: $(txt cli.role.noexist "$papel") ${PAPEIS[*]}" >&2; exit 1; }
+  [[ $cor =~ ^[0-9a-fA-F]{6}$ ]] || {
+    echo "rice-cores: $(txt cli.nothex "$cor")" >&2; exit 1; }
+
+  local id; id=$(alvo_edicao)
+  local arq="$THEMES/$id.sh"
+  cor=${cor,,}
+  if grep -qE "^$papel=" "$arq"; then
+    sed -i "s|^$papel=.*|$papel=$cor|" "$arq"
+  else
+    echo "$papel=$cor" >> "$arq"
+  fi
+  rice-theme set "$id" >/dev/null 2>&1 || true
+  # Devolve o ID junto: o painel precisa saber em qual tema caiu, senão o
+  # cartão continua marcando o de fábrica que acabou de ser clonado.
+  echo "$id $papel=$cor"
+}
+
+renomear() {
+  local id="$1" nome="$2"
+  local arq="$THEMES/$id.sh"
+  [[ -f $arq ]] || { echo "rice-cores: $(txt cli.theme.noexist "$id")" >&2; exit 1; }
+  eh_proprio "$arq" || {
+    echo "rice-cores: $(txt cli.factory.norename "$id")" >&2; exit 1; }
+  [[ -n ${nome// /} ]] || { echo "rice-cores: $(txt cli.name.empty)" >&2; exit 1; }
+
+  # Só o TÍTULO muda; o arquivo continua com o mesmo nome.
+  #
+  # Renomear o arquivo obrigaria a acertar, na mesma tacada, o
+  # ~/.config/rice/current, o pill.json e qualquer atalho que aponte para
+  # o slug antigo. Falhar em um deles deixa o sistema apontando para um
+  # tema que não existe mais — e o custo de não renomear é só um nome de
+  # arquivo feio, que ninguém vê pelo painel.
+  if grep -qE '^NAME=' "$arq"; then
+    sed -i "s|^NAME=.*|NAME=\"$nome\"|" "$arq"
+  else
+    sed -i "1a NAME=\"$nome\"" "$arq"
+  fi
+  # Reaplica se for o tema em uso, para a barra pegar o título novo.
+  [[ $(atual) == "$id" ]] && rice-theme set "$id" >/dev/null 2>&1
+  echo "$nome"
+}
+
+apagar() {
+  local id="$1"
+  local arq="$THEMES/$id.sh"
+  [[ -f $arq ]] || { echo "rice-cores: $(txt cli.theme.noexist "$id")" >&2; exit 1; }
+  eh_proprio "$arq" || {
+    echo "rice-cores: $(txt cli.factory.nodelete "$id")" >&2; exit 1; }
+
+  rm -f "$arq"
+
+  # Se era o tema em uso, precisa cair em ALGUM lugar: continuar apontando
+  # para um arquivo apagado deixa o sistema sem paleta no próximo boot.
+  # Prefere outro tema do usuário — quem estava editando os seus
+  # provavelmente não quer ser jogado de volta no de fábrica.
+  if [[ $(atual) == "$id" ]]; then
+    local proximo=""
+    for f in "$THEMES"/*.sh; do
+      [[ -e $f ]] || continue
+      eh_proprio "$f" || continue
+      proximo=$(basename "$f" .sh); break
+    done
+    [[ -z $proximo ]] && proximo=samurai
+    [[ -f "$THEMES/$proximo.sh" ]] || proximo=$(basename "$(find "$THEMES" -name '*.sh' | head -1)" .sh)
+    rice-theme set "$proximo" >/dev/null 2>&1 || true
+  fi
+  echo "removido"
+}
+
+meus() {
+  for f in "$THEMES"/*.sh; do
+    [[ -e $f ]] || continue
+    eh_proprio "$f" || continue
+    basename "$f" .sh
+  done
+}
+
+mostrar() {
+  local arq="$THEMES/$(atual).sh"
+  [[ -f $arq ]] || arq="$THEMES/samurai.sh"
+  ler_tema "$arq"
+}
+
+case "${1:-mostrar}" in
+  mostrar)  mostrar ;;
+  set)      definir "${2:?papel}" "${3:?cor}" ;;
+  clonar)   clonar "${2:-}" "${3:-}" ;;
+  renomear) renomear "${2:?slug}" "${3:?nome}" ;;
+  apagar)   apagar "${2:?slug}" ;;
+  meus)     meus ;;
+  # `descartar` era o nome antigo, de quando só havia um tema do usuário.
+  # Mantido para não quebrar atalho ou script que ainda o chame.
+  descartar)
+    cur=$(atual)
+    eh_proprio "$THEMES/$cur.sh" && apagar "$cur" || echo "nada a descartar" ;;
+  *) echo "$(txt cli.usage): rice-cores [mostrar|set <papel> <hex>|clonar [base] [nome]|renomear <slug> <nome>|apagar <slug>|meus]" >&2; exit 2 ;;
+esac

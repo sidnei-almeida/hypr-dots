@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Lê e grava chaves do ~/.config/rice/pill.json.
+#
+#   rice-pill get simbolos
+#   rice-pill set simbolos kanji
+#   rice-pill set transparencia true
+#   rice-pill show
+#
+# O arquivo é observado pelo Quickshell: gravou, a barra muda na hora.
+# Mas algumas chaves valem FORA da barra (transparência pega terminal e
+# janelas), e essas precisam de um empurrão extra — é o que a função
+# propagar() faz.
+
+set -euo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+CFG="$HOME/.config/rice/pill.json"
+
+[[ -f $CFG ]] || echo '{}' > "$CFG"
+
+# jq preserva o tipo do JSON, então "true" precisa virar booleano e
+# "0.9" precisa virar número — senão a barra recebe string e o `??`
+# do QML aceita, mas a comparação falha em silêncio.
+tipar() {
+  case "$1" in
+    true|false)              printf '%s' "$1" ;;
+    ''|*[!0-9.]*)            printf '%s' "$1" | jq -Rs . ;;
+    *)                       printf '%s' "$1" ;;
+  esac
+}
+
+gravar() {
+  local chave="$1" valor; valor=$(tipar "$2")
+  local tmp; tmp=$(mktemp)
+  jq --argjson v "$valor" ".\"$chave\" = \$v" "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+}
+
+# `// empty` NÃO serve aqui: no jq o operador `//` considera `false` um
+# valor ausente, então toda chave booleana desligada voltava vazia — o
+# mesmo que uma chave inexistente. Quem lesse um interruptor não teria
+# como distinguir "desligado" de "nunca configurado".
+#
+# `has()` pergunta pela EXISTÊNCIA da chave, que é a pergunta certa.
+ler() { jq -r --arg k "$1" 'if has($k) and .[$k] != null then .[$k] else empty end' "$CFG"; }
+
+# Transparência não é só da barra: o terminal e as janelas também
+# precisam saber. Reaplicar o tema é o caminho — é ele que escreve o
+# kitty e as regras do Hyprland.
+propagar() {
+  case "$1" in
+    transparencia|opacidadeJanelas|opacidadePaineis)
+      rice-theme set "$(rice-theme current)" >/dev/null 2>&1 || true ;;
+    bordaJanela|arredJanela|gapsIn|gapsOut)
+      # Estas viram decor.lua e só entram em vigor no reload — o
+      # Hyprland não relê o config sozinho quando o arquivo muda.
+      rice-theme set "$(rice-theme current)" >/dev/null 2>&1 || true
+      hyprctl reload >/dev/null 2>&1 || true ;;
+  esac
+}
+
+case "${1:-show}" in
+  get)  ler "${2:?chave}" ;;
+  set)  gravar "${2:?chave}" "${3?valor}"; propagar "$2" ;;
+  show) jq . "$CFG" ;;
+  *)    echo "$(txt cli.usage): rice-pill [get <chave>|set <chave> <valor>|show]" >&2; exit 2 ;;
+esac

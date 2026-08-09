@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Menu de áudio: trocar saída/entrada, volume e mudo — sem abrir terminal.
+#
+#   rice-audio           menu
+#   rice-audio output    escolher saída
+#   rice-audio input     escolher microfone
+#
+# O nome do dispositivo ativo vem marcado com ✓.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+
+# Lê uma seção do `wpctl status` e devolve linhas "id<TAB>marca<TAB>nome".
+# O formato é: " │  *   68. Nome do dispositivo   [vol: 0.25]"
+parse_section() {
+  local from="$1" to="$2"
+  wpctl status |
+    sed -n "/├─ $from:/,/─ $to:/p" |
+    grep -E '^ │ +\*? +[0-9]+\. ' |
+    sed -E 's/\[vol:[^]]*\]//' |
+    sed -E 's/^ │ +(\*)? +([0-9]+)\. +(.*[^ ]) *$/\2\t\1\t\3/'
+}
+
+choose_device() {
+  local kind="$1" from="$2" to="$3" icon="$4"
+  local -a ids=() labels=()
+
+  while IFS=$'\t' read -r id mark name; do
+    [[ -z ${id:-} ]] && continue
+    ids+=("$id")
+    if [[ $mark == "*" ]]; then
+      labels+=("$icon   $name  ✓")
+    else
+      labels+=("$icon   $name")
+    fi
+  done < <(parse_section "$from" "$to")
+
+  if [[ ${#ids[@]} -eq 0 ]]; then
+    notify-send "$(txt notif.app.audio)" "$(txt notif.audio.nodev "$kind")"
+    return 1
+  fi
+
+  local idx
+  idx=$(printf '%s\n' "${labels[@]}" |
+    fuzzel --dmenu --index --prompt "$icon   " \
+      --placeholder "Escolher $kind..." --lines "${#ids[@]}" --width 46) || return 1
+  [[ -z ${idx:-} ]] && return 1
+
+  wpctl set-default "${ids[$idx]}"
+  notify-send -t 2000 "$(txt notif.app.audio)" "$kind: ${labels[$idx]//  ✓/}"
+}
+
+volume_now() {
+  wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null |
+    awk '{ printf "%d%%%s", $2*100, ($3=="[MUTED]" ? "  (mudo)" : "") }'
+}
+
+menu() {
+  local -a L=(
+    "󰕾   Saída de som"
+    "󰍬   Microfone"
+    "󰝝   Aumentar volume"
+    "󰝞   Diminuir volume"
+    "󰝟   Mudo (alternar)"
+  )
+  command -v pavucontrol >/dev/null 2>&1 && L+=("󰕾   Mixer completo")
+
+  local idx
+  idx=$(printf '%s\n' "${L[@]}" |
+    fuzzel --dmenu --index --prompt "󰕾   " \
+      --placeholder "Áudio — $(volume_now)" --lines "${#L[@]}" --width 34) || exit 0
+  [[ -z ${idx:-} ]] && exit 0
+
+  case "$idx" in
+    0) choose_device "saída"    "Sinks"   "Sources" "󰕾" ;;
+    1) choose_device "microfone" "Sources" "Filters" "" ;;
+    2) wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+; notify-send -t 1200 "$(txt notif.app.volume)" "$(volume_now)" ;;
+    3) wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-;        notify-send -t 1200 "$(txt notif.app.volume)" "$(volume_now)" ;;
+    4) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle;       notify-send -t 1200 "$(txt notif.app.volume)" "$(volume_now)" ;;
+    5) setsid -f pavucontrol >/dev/null 2>&1 ;;
+  esac
+}
+
+case "${1:-menu}" in
+  output) choose_device "saída"    "Sinks"   "Sources" "󰕾" ;;
+  input)  choose_device "microfone" "Sources" "Filters" "" ;;
+  menu)   menu ;;
+  *)      echo "$(txt cli.usage): rice-audio [menu|output|input]" >&2; exit 2 ;;
+esac

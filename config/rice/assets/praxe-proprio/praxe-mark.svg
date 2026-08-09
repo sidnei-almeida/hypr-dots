@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!--
+    PraXe OS — o SÍMBOLO, para tamanhos pequenos: barra, bandeja, ícones.
+    Não é o logo reduzido. É um desenho à parte, chapado e de traço
+    grosso, porque contorno fino vira borrão abaixo de 24px.
+    O logo detalhado (com assinatura) mora em praxe-logo.svg.
+
+    Duas cores, ambas trocadas pelo rice-theme:
+      currentColor  o hexágono, na cor de acento do tema
+      #0a0a0a       o A vazado, na cor de fundo do tema
+  -->
+  <path d="M50 2 L92 26 L92 74 L50 98 L8 74 L8 26 Z" fill="currentColor"/>
+  <g stroke="#0a0a0a" stroke-width="10" fill="none"
+     stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M31 76 L50 26 L69 76"/>
+    <path d="M26 62 L74 62"/>
+  </g>
+</svg>

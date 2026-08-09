@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# ┌──────────────────────────────────────────────────────────────┐
+# │  Web apps: um site vira uma janela própria, com ícone.        │
+# └──────────────────────────────────────────────────────────────┘
+#
+#   rice-webapp                    menu (adicionar / remover / abrir)
+#   rice-webapp add "Nome" "URL"   cadastra
+#   rice-webapp remove             escolhe qual apagar
+#   rice-webapp list               lista os cadastrados
+#
+# Cada web app vira um .desktop em ~/.local/share/applications, então
+# ele aparece no lançador (SUPER+SPACE) junto com os apps normais.
+#
+# Janela de verdade (sem abas nem barra de endereço) exige um navegador
+# baseado em Chromium — o `--app=` é dele. Sem Chromium, cai no Zen em
+# janela nova, que funciona mas mantém a interface do navegador.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+
+APPDIR="$HOME/.local/share/applications"
+ICONDIR="$HOME/.local/share/rice/icons"
+PREFIX="rice-webapp-"
+
+mkdir -p "$APPDIR" "$ICONDIR"
+
+# Qual navegador consegue abrir em modo janela
+browser_cmd() {
+  local url="$1" class="$2"
+  for b in chromium google-chrome-stable brave microsoft-edge-stable; do
+    if command -v "$b" >/dev/null 2>&1; then
+      echo "$b --app=$url --class=$class --name=$class"
+      return 0
+    fi
+  done
+  echo "zen-browser --new-window $url"
+}
+
+has_chromium() {
+  for b in chromium google-chrome-stable brave microsoft-edge-stable; do
+    command -v "$b" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
+slugify() {
+  echo "$1" | iconv -t ascii//TRANSLIT 2>/dev/null |
+    tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g'
+}
+
+fetch_icon() {
+  local url="$1" slug="$2" domain icon
+  domain=$(echo "$url" | sed -E 's#^[a-z]+://##; s#/.*##')
+  icon="$ICONDIR/$slug.png"
+  # Serviço de favicon do Google: resolve a maioria dos sites em 128px.
+  if curl -fsL --max-time 8 -o "$icon" \
+      "https://www.google.com/s2/favicons?domain=$domain&sz=128" 2>/dev/null &&
+     [[ -s $icon ]]; then
+    echo "$icon"
+  else
+    rm -f "$icon"
+    echo "applications-internet"   # ícone genérico do tema
+  fi
+}
+
+add_webapp() {
+  local name="$1" url="$2"
+  [[ -z $name || -z $url ]] && { notify-send "$(txt notif.app.webapp)" "$(txt notif.webapp.required)"; return 1; }
+
+  # Aceita "site.com" e completa o esquema
+  [[ $url =~ ^https?:// ]] || url="https://$url"
+
+  local slug class icon exec_line
+  slug=$(slugify "$name")
+  [[ -z $slug ]] && slug="webapp"
+  class="$PREFIX$slug"
+  icon=$(fetch_icon "$url" "$slug")
+  exec_line=$(browser_cmd "$url" "$class")
+
+  cat > "$APPDIR/$class.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=$name
+Comment=Web app — $url
+Exec=$exec_line
+Icon=$icon
+Terminal=false
+StartupWMClass=$class
+Categories=Network;
+X-Rice-Webapp=$url
+EOF
+
+  update-desktop-database "$APPDIR" 2>/dev/null || true
+
+  if has_chromium; then
+    notify-send -t 3000 "$(txt notif.webapp.created)" "$(txt notif.webapp.inlauncher "$name")"
+  else
+    notify-send -t 6000 "$(txt notif.webapp.created)" \
+      "$name  ·  aparece no SUPER+SPACE.
+Instale o chromium para abrir sem abas do navegador."
+  fi
+}
+
+list_webapps() {
+  find "$APPDIR" -maxdepth 1 -name "$PREFIX*.desktop" -printf '%f\n' 2>/dev/null | sort
+}
+
+label_of() {
+  awk -F= '/^Name=/ { print $2; exit }' "$APPDIR/$1"
+}
+
+remove_webapp() {
+  local -a files=() labels=()
+  while read -r f; do
+    [[ -z $f ]] && continue
+    files+=("$f")
+    labels+=("󰖟   $(label_of "$f")")
+  done < <(list_webapps)
+
+  if [[ ${#files[@]} -eq 0 ]]; then
+    notify-send "$(txt notif.app.webapp)" "$(txt notif.webapp.none)"
+    return 0
+  fi
+
+  local idx
+  idx=$(printf '%s\n' "${labels[@]}" |
+    fuzzel --dmenu --index --prompt "󰩹   " \
+      --placeholder "Remover qual?" --lines "${#files[@]}" --width 40) || return 0
+  [[ -z ${idx:-} ]] && return 0
+
+  local slug
+  slug=$(basename "${files[$idx]}" .desktop)
+  rm -f "$APPDIR/${files[$idx]}" "$ICONDIR/${slug#$PREFIX}.png"
+  update-desktop-database "$APPDIR" 2>/dev/null || true
+  notify-send -t 2000 "$(txt notif.webapp.removed)" "${labels[$idx]}"
+}
+
+# Pede texto ao usuário: --prompt-only não espera stdin, serve de campo livre
+ask() {
+  fuzzel --dmenu --prompt-only "$1" --width 46 2>/dev/null
+}
+
+add_interactive() {
+  local name url
+  name=$(ask "Nome:  ") || return 0
+  [[ -z $name ]] && return 0
+  url=$(ask "URL:  ") || return 0
+  [[ -z $url ]] && return 0
+  add_webapp "$name" "$url"
+}
+
+menu() {
+  local -a L=("󰐕   Adicionar web app")
+  [[ -n $(list_webapps) ]] && L+=("󰩹   Remover web app")
+  L+=("󰓎   Sugestões prontas")
+
+  local idx
+  idx=$(printf '%s\n' "${L[@]}" |
+    fuzzel --dmenu --index --prompt "󰖟   " \
+      --placeholder "Web apps..." --lines "${#L[@]}" --width 34) || exit 0
+  [[ -z ${idx:-} ]] && exit 0
+
+  case "${L[$idx]}" in
+    *Adicionar*) add_interactive ;;
+    *Remover*)   remove_webapp ;;
+    *Sugestões*) suggestions ;;
+  esac
+}
+
+# Atalho para os web apps mais comuns, no espírito do Omarchy
+suggestions() {
+  local -a names=(WhatsApp YouTube ChatGPT Gmail "Google Agenda" "Google Fotos" Spotify X)
+  local -a urls=(
+    "https://web.whatsapp.com"
+    "https://youtube.com"
+    "https://chatgpt.com"
+    "https://mail.google.com"
+    "https://calendar.google.com"
+    "https://photos.google.com"
+    "https://open.spotify.com"
+    "https://x.com"
+  )
+
+  local -a labels=()
+  for n in "${names[@]}"; do labels+=("󰖟   $n"); done
+
+  local idx
+  idx=$(printf '%s\n' "${labels[@]}" |
+    fuzzel --dmenu --index --prompt "󰓎   " \
+      --placeholder "Criar web app de..." --lines "${#names[@]}" --width 34) || return 0
+  [[ -z ${idx:-} ]] && return 0
+
+  add_webapp "${names[$idx]}" "${urls[$idx]}"
+}
+
+case "${1:-menu}" in
+  add)    add_webapp "${2:-}" "${3:-}" ;;
+  remove) remove_webapp ;;
+  list)   list_webapps ;;
+  menu)   menu ;;
+  *)      echo "$(txt cli.usage): rice-webapp [menu|add <nome> <url>|remove|list]" >&2; exit 2 ;;
+esac

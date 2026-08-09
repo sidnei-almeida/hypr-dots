@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Captura de tela. Vai para a área de transferência E para a subpasta
+# Screenshots da pasta de imagens DO SISTEMA (Pictures, Imagens, Bilder...
+# — quem decide é o xdg-user-dirs, não este script). Ver rice-pastas.sh.
+#
+#   rice-screenshot region          área selecionada com o mouse  (PRINT)
+#   rice-screenshot output          tela inteira                  (SHIFT + PRINT)
+#   rice-screenshot window          janela ativa                  (SUPER + PRINT)
+#   rice-screenshot region --edit   abre o swappy para anotar antes de salvar
+#
+# Sem --edit o print é direto: salva, copia e avisa. Nada de janela no caminho.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+# Pastas do usuário — vêm do xdg-user-dirs. Ver rice-pastas.sh.
+source "$HOME/.local/bin/rice-pastas.sh"
+
+set -euo pipefail
+
+mode="${1:-region}"
+edit="${2:-}"
+
+dir="$(rice_pasta PICTURES Pictures)/Screenshots"
+mkdir -p "$dir"
+
+file="$dir/print-$(date +%Y-%m-%d_%H-%M-%S).png"
+
+case "$mode" in
+  region)
+    geometry=$(slurp -b 1a1b2680 -c 7aa2f7ff -w 2) || exit 0
+    grim -g "$geometry" "$file"
+    ;;
+  output)
+    grim "$file"
+    ;;
+  window)
+    geometry=$(hyprctl activewindow -j | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+    grim -g "$geometry" "$file"
+    ;;
+  *)
+    echo "$(txt cli.usage): rice-screenshot [region|output|window]" >&2
+    exit 2
+    ;;
+esac
+
+if [[ $edit == "--edit" ]] && command -v swappy >/dev/null 2>&1; then
+  swappy -f "$file" -o "$file" || true
+fi
+
+wl-copy < "$file"
+
+notify-send -t 3000 -i "$file" "$(txt notif.shot.saved)" "$(txt notif.shot.alsoclip "$(basename "$file")")"

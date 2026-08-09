@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Ícones do sistema: listar, instalar e aplicar temas de ícone.
+#
+#   rice-icons listar            temas instalados (json)
+#   rice-icons loja              temas disponíveis nos repos (json)
+#   rice-icons aplicar <nome>    aplica em GTK e Qt de uma vez
+#   rice-icons instalar <pkg>    instala do repo e aplica
+#   rice-icons atual             nome do tema em uso
+#
+# Por que um script e não só gsettings: um tema de ícone precisa ser
+# declarado em quatro lugares diferentes (gsettings, gtk-3.0, gtk-4.0 e
+# kdeglobals). Errar um deles é o que faz metade dos apps ficar com o
+# ícone antigo — foi o que já aconteceu com o cursor aqui.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+DIRS=("$HOME/.local/share/icons" "$HOME/.icons" /usr/share/icons)
+CFG="$HOME/.config/rice/pill.json"
+
+# Um diretório só é tema de ícone se tem index.theme COM entradas de
+# tamanho. Sem esse filtro entram os temas de cursor, que também vivem
+# em /usr/share/icons e apareceriam na lista sem servir para nada.
+eh_tema_de_icone() {
+  local idx="$1/index.theme"
+  [[ -f $idx ]] || return 1
+  grep -qE '^\s*Directories\s*=' "$idx" || return 1
+  ! grep -qiE '^\s*Name\s*=.*cursor' "$idx"
+}
+
+nome_bonito() {
+  local idx="$1/index.theme"
+  sed -nE 's/^\s*Name\s*=\s*(.+)\s*$/\1/p' "$idx" 2>/dev/null | head -1
+}
+
+listar() {
+  local vistos=() d dir base
+  printf '['
+  local primeiro=1
+  for d in "${DIRS[@]}"; do
+    [[ -d $d ]] || continue
+    for dir in "$d"/*/; do
+      base=$(basename "$dir")
+      [[ " ${vistos[*]-} " == *" $base "* ]] && continue
+      eh_tema_de_icone "$dir" || continue
+      vistos+=("$base")
+      [[ $primeiro -eq 0 ]] && printf ','
+      primeiro=0
+      printf '{"id":%s,"nome":%s}' \
+        "$(printf '%s' "$base" | jq -Rs .)" \
+        "$(printf '%s' "$(nome_bonito "$dir")" | jq -Rs .)"
+    done
+  done
+  printf ']\n'
+}
+
+# Curadoria: os temas de ícone que valem a pena e existem nos repos ou
+# no AUR. Listar tudo que casa com "icon-theme" traria dezenas de pacotes
+# mortos; melhor uma lista curta que funciona.
+CATALOGO=(
+  "papirus-icon-theme|Papirus|Colorido, cobertura enorme, pastas em 20+ cores"
+  "papirus-folders|Papirus Folders|Ferramenta de cor de pasta do Papirus"
+  "tela-icon-theme|Tela|Pastas geométricas, visual limpo"
+  "tela-circle-icon-theme|Tela Circle|Tela com ícones circulares"
+  "colloid-icon-theme|Colloid|Moderno, combina com libadwaita"
+  "kora-icon-theme|Kora|Traço fino, elegante"
+  "candy-icons|Candy|Gradientes vivos"
+  "beautyline|BeautyLine|Contorno fino, monocromático"
+  "numix-icon-theme|Numix|Clássico, arredondado"
+  "breeze-icons|Breeze|Padrão do KDE, monocromático"
+  "adwaita-icon-theme|Adwaita|Padrão do GNOME"
+)
+
+loja() {
+  local primeiro=1
+  printf '['
+  for linha in "${CATALOGO[@]}"; do
+    IFS='|' read -r pkg nome desc <<< "$linha"
+    local instalado=false
+    pacman -Qq "$pkg" >/dev/null 2>&1 && instalado=true
+    [[ $primeiro -eq 0 ]] && printf ','
+    primeiro=0
+    printf '{"pkg":%s,"nome":%s,"desc":%s,"instalado":%s}' \
+      "$(printf '%s' "$pkg" | jq -Rs .)" \
+      "$(printf '%s' "$nome" | jq -Rs .)" \
+      "$(printf '%s' "$desc" | jq -Rs .)" "$instalado"
+  done
+  printf ']\n'
+}
+
+existe() {
+  local n="$1" d
+  for d in "${DIRS[@]}"; do [[ -f "$d/$n/index.theme" ]] && return 0; done
+  return 1
+}
+
+aplicar() {
+  local nome="$1"
+  existe "$nome" || { echo "rice-icons: $(txt cli.icons.notinstalled "$nome")" >&2; exit 1; }
+
+  # GTK 3 e 4 leem o ini; o gsettings é quem os apps já abertos escutam
+  for v in 3.0 4.0; do
+    local ini="$HOME/.config/gtk-$v/settings.ini"
+    [[ -f $ini ]] || { mkdir -p "$(dirname "$ini")"; printf '[Settings]\n' > "$ini"; }
+    if grep -q '^gtk-icon-theme-name=' "$ini"; then
+      sed -i "s|^gtk-icon-theme-name=.*|gtk-icon-theme-name=$nome|" "$ini"
+    else
+      sed -i "0,/^\[Settings\]/s//[Settings]\ngtk-icon-theme-name=$nome/" "$ini"
+    fi
+  done
+
+  gsettings set org.gnome.desktop.interface icon-theme "$nome" 2>/dev/null || true
+
+  # Qt, via kdeglobals (plasma-integration)
+  local kd="$HOME/.config/kdeglobals"
+  if [[ -f $kd ]]; then
+    if grep -q '^\[Icons\]' "$kd"; then
+      sed -i "/^\[Icons\]/,/^\[/{s|^Theme=.*|Theme=$nome|}" "$kd"
+      grep -qE '^\[Icons\]' "$kd" && ! sed -n '/^\[Icons\]/,/^\[/p' "$kd" | grep -q '^Theme=' \
+        && sed -i "/^\[Icons\]/a Theme=$nome" "$kd"
+    else
+      printf '\n[Icons]\nTheme=%s\n' "$nome" >> "$kd"
+    fi
+  fi
+
+  # Guarda a escolha para o painel refletir e o rice-theme não desfazer
+  if [[ -f $CFG ]] && command -v jq >/dev/null; then
+    tmp=$(mktemp)
+    jq --arg t "$nome" '.iconTheme = $t' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+  fi
+
+  notify-send -t 2500 "$(txt notif.app.icons)" "$(txt notif.icons.applied "$nome")" 2>/dev/null || true
+  echo "$nome"
+}
+
+atual() {
+  gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'" || echo ""
+}
+
+instalar() {
+  local pkg="$1"
+  local ajudante=pacman
+  command -v paru >/dev/null && ajudante=paru
+  command -v yay  >/dev/null && ajudante=yay
+
+  # Precisa de terminal: a instalação pede senha e mostra progresso.
+  if [[ $ajudante == pacman ]]; then
+    kitty --class rice-float -e sudo pacman -S --needed "$pkg"
+  else
+    kitty --class rice-float -e "$ajudante" -S --needed "$pkg"
+  fi
+
+  # Após instalar, aplica o primeiro tema que o pacote trouxe
+  local novo
+  novo=$(pacman -Ql "$pkg" 2>/dev/null |
+         grep -oE '/usr/share/icons/[^/]+/index\.theme$' |
+         head -1 | cut -d/ -f5) || true
+  [[ -n ${novo:-} ]] && aplicar "$novo"
+}
+
+case "${1:-listar}" in
+  listar)   listar ;;
+  loja)     loja ;;
+  aplicar)  aplicar "${2:?nome do tema}" ;;
+  instalar) instalar "${2:?nome do pacote}" ;;
+  atual)    atual ;;
+  *) echo "$(txt cli.usage): rice-icons listar|loja|aplicar <nome>|instalar <pkg>|atual" >&2; exit 1 ;;
+esac

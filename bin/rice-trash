@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Lixeira do dock.
+#
+#   rice-trash contar     nº de itens (0 se a lixeira nem existe)
+#   rice-trash abrir      abre a lixeira no gerenciador de arquivos
+#   rice-trash esvaziar   apaga tudo, com confirmação no fuzzel
+#
+# Segue a spec XDG: os arquivos ficam em ~/.local/share/Trash/files e os
+# metadados — de onde vieram e quando — em .../info. Apagar só os `files`
+# deixaria os `info` órfãos e o gerenciador passaria a listar entradas
+# fantasma, que não abrem nem somem. Por isso o esvaziar mexe nos dois.
+#
+# Quando existe, quem esvazia é o `gio`: ele conhece a spec inteira,
+# inclusive as lixeiras de outros pontos de montagem (pendrive, HD
+# externo), que não moram em ~/.local/share.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+TRASH="${XDG_DATA_HOME:-$HOME/.local/share}/Trash"
+
+contar() {
+    [[ -d $TRASH/files ]] || { echo 0; return; }
+    # -mindepth 1 para não contar o próprio diretório; -maxdepth 1 porque
+    # o que vale é o item que o usuário jogou fora, não o conteúdo dele.
+    find "$TRASH/files" -mindepth 1 -maxdepth 1 -printf '.' 2>/dev/null | wc -c
+}
+
+abrir() {
+    # trash:/// é o endereço padrão; nem todo gerenciador o entende, e aí
+    # o melhor que dá para fazer é abrir a pasta crua.
+    if command -v gio >/dev/null 2>&1 && gio open "trash:///" 2>/dev/null; then
+        return 0
+    fi
+    xdg-open "trash:///" 2>/dev/null && return 0
+    [[ -d $TRASH/files ]] && xdg-open "$TRASH/files" 2>/dev/null && return 0
+    notify-send -t 2500 "$(txt notif.app.trash)" "$(txt notif.trash.nofm)" 2>/dev/null
+}
+
+esvaziar() {
+    local n; n=$(contar)
+    if (( n == 0 )); then
+        notify-send -t 2000 "$(txt notif.app.trash)" "$(txt notif.trash.alreadyempty)" 2>/dev/null
+        return 0
+    fi
+
+    local plural="itens"; (( n == 1 )) && plural="item"
+
+    # Confirmação obrigatória: isto é o único caminho do rice que apaga
+    # arquivo de verdade, sem volta. O padrão do menu é "Não" — se o
+    # usuário só bater ENTER por reflexo, nada acontece.
+    local resp
+    resp=$(printf 'Não\nSim, apagar para sempre\n' |
+           fuzzel --dmenu --prompt "  " \
+                  --placeholder "Esvaziar a lixeira? ($n $plural)" \
+                  --lines 2 --width 38) || return 0
+    [[ $resp == "Sim, apagar para sempre" ]] || return 0
+
+    if command -v gio >/dev/null 2>&1; then
+        gio trash --empty 2>/dev/null
+    else
+        # `rm -rf "$dir"/.*` casaria com . e .. — o rm recusa, mas é jeito
+        # errado de escrever. O find resolve dotfile sem esse risco.
+        find "$TRASH/files" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null
+        find "$TRASH/info"  -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null
+    fi
+
+    notify-send -t 2000 "$(txt notif.app.trash)" "$(txt notif.trash.deleted "$n $plural")" 2>/dev/null
+}
+
+case "${1:-contar}" in
+    contar)   contar ;;
+    abrir)    abrir ;;
+    esvaziar) esvaziar ;;
+    *) echo "$(txt cli.usage): rice-trash [contar|abrir|esvaziar]" >&2; exit 2 ;;
+esac

@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Instala o tema PraXe do rEFInd na partição EFI.
+#
+#   sudo rice-refind-instalar
+#   sudo rice-refind-instalar --remover
+#
+# Precisa de root: a ESP é montada com fmask=0077 e nem listar dá sem ele.
+#
+# ── CUIDADO DELIBERADO ───────────────────────────────────────────────
+#
+# Isto escreve na partição de boot, que é o único lugar da máquina onde
+# um erro custa um pendrive de recuperação. Por isso o script:
+#
+#   · NÃO reescreve o refind.conf. Só ACRESCENTA uma linha `include` no
+#     fim dele, e o tema inteiro mora num arquivo à parte. Desfazer é
+#     remover essa linha, que é o que o --remover faz.
+#   · guarda uma cópia datada do refind.conf antes de encostar nele;
+#   · escreve em arquivo temporário e troca com `mv`, que é atômico —
+#     uma queda de energia no meio deixa o arquivo antigo, não um pela
+#     metade;
+#   · confere no fim que o refind.conf continua legível e que os arquivos
+#     do tema chegaram.
+#
+# O `include` vai no FIM de propósito: no rEFInd, a última diretiva lida
+# é a que vale. No começo, qualquer ajuste do arquivo principal
+# sobrescreveria o tema em silêncio.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+MARCA="# --- tema PraXe (rice-refind-instalar) ---"
+LINHA="include themes/praxe/theme.conf"
+ORIGEM_PADRAO="/home/${SUDO_USER:-$USER}/.local/share/rice/refind-praxe"
+
+[[ $EUID -eq 0 ]] || { echo "$(txt cli.refind.needroot "$0 ${*:-}")" >&2; exit 1; }
+
+# ── Achar a instalação do rEFInd ─────────────────────────────────────
+REFIND=""
+for d in /boot/EFI/refind /boot/efi/EFI/refind /efi/EFI/refind /esp/EFI/refind \
+         /boot/EFI/BOOT /boot/EFI/Boot; do
+    [[ -f "$d/refind.conf" ]] && { REFIND="$d"; break; }
+done
+if [[ -z $REFIND ]]; then
+    REFIND=$(dirname "$(find /boot /efi /esp -maxdepth 5 -name refind.conf 2>/dev/null | head -1)" 2>/dev/null) || true
+fi
+[[ -n $REFIND && -f "$REFIND/refind.conf" ]] || {
+    echo "$(txt cli.refind.notfound)" >&2
+    echo "$(txt cli.refind.searched)" >&2
+    exit 1
+}
+CONF="$REFIND/refind.conf"
+echo "==> rEFInd em: $REFIND"
+
+# ── Remover ──────────────────────────────────────────────────────────
+if [[ ${1:-} == --remover ]]; then
+    cp -a "$CONF" "$CONF.bak.$(date +%Y%m%d-%H%M%S)"
+    tmp=$(mktemp)
+    grep -vxF "$MARCA" "$CONF" | grep -vxF "$LINHA" > "$tmp"
+    mv -f "$tmp" "$CONF"
+    rm -rf "$REFIND/themes/praxe"
+    echo "$(txt cli.refind.removed)"
+    exit 0
+fi
+
+# ── Instalar ─────────────────────────────────────────────────────────
+ORIGEM="${1:-$ORIGEM_PADRAO}"
+[[ -f "$ORIGEM/theme.conf" ]] || {
+    echo "$(txt cli.refind.nothemedir "$ORIGEM")" >&2
+    echo "$(txt cli.refind.runfirst)" >&2
+    exit 1
+}
+
+BACKUP="$CONF.bak.$(date +%Y%m%d-%H%M%S)"
+cp -a "$CONF" "$BACKUP"
+echo "==> $(txt cli.refind.backup "$BACKUP")"
+
+mkdir -p "$REFIND/themes"
+rm -rf "$REFIND/themes/praxe.novo"
+cp -a "$ORIGEM" "$REFIND/themes/praxe.novo"
+# Troca no fim, pelo mesmo motivo de sempre: nunca existe um instante em
+# que o tema esteja pela metade enquanto o refind.conf já aponta para ele.
+rm -rf "$REFIND/themes/praxe"
+mv -T "$REFIND/themes/praxe.novo" "$REFIND/themes/praxe"
+echo "==> $(txt cli.refind.copied "$REFIND/themes/praxe")"
+
+# Idempotente: se a linha já está lá, não duplica.
+if grep -qxF "$LINHA" "$CONF"; then
+    echo "==> $(txt cli.refind.already)"
+else
+    tmp=$(mktemp)
+    { cat "$CONF"; printf '\n%s\n%s\n' "$MARCA" "$LINHA"; } > "$tmp"
+    mv -f "$tmp" "$CONF"
+    chmod 644 "$CONF" 2>/dev/null || true
+    echo "==> $(txt cli.refind.includeadded)"
+fi
+
+# ── Conferência ──────────────────────────────────────────────────────
+erros=0
+for f in theme.conf background.png icons/os_arch.png icons/selection_big.png; do
+    [[ -f "$REFIND/themes/praxe/$f" ]] || { echo "  $(txt cli.refind.missing "$f")" >&2; erros=1; }
+done
+grep -qxF "$LINHA" "$CONF" || { echo "  $(txt cli.refind.missing "include -> refind.conf")" >&2; erros=1; }
+[[ -s $CONF ]] || { echo "  $(txt cli.refind.emptyconf)" >&2; cp -a "$BACKUP" "$CONF"; exit 1; }
+
+if [[ $erros -eq 0 ]]; then
+    cat <<'FIM'
+
+──────────────────────────────────────────────────────────────────────
+ Instalado. Reinicie para ver.
+ Se algo sair errado na tela de boot, o rEFInd ainda arranca: o tema é
+ só um include, e o menu funciona mesmo sem ele. Para desfazer:
+     sudo rice-refind-instalar --remover
+──────────────────────────────────────────────────────────────────────
+FIM
+else
+    echo "$(txt cli.refind.incomplete "$BACKUP")" >&2
+    exit 1
+fi

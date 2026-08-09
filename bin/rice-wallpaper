@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Troca o papel de parede e grava a escolha para o próximo login.
+# Procura imagens na subpasta Wallpapers da pasta de imagens DO SISTEMA
+# — o nome dela vem do xdg-user-dirs, não daqui. Ver rice-pastas.sh.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+# Pastas do usuário — vêm do xdg-user-dirs. Ver rice-pastas.sh.
+source "$HOME/.local/bin/rice-pastas.sh"
+
+set -euo pipefail
+
+# O script chama o rice-theme; sem isto ele depende do PATH de quem
+# o invocou, que nem sempre inclui ~/.local/bin.
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+
+dir="$(rice_pasta PICTURES Pictures)/Wallpapers"
+
+command -v hyprpaper >/dev/null 2>&1 || {
+  notify-send "$(txt notif.app.wallpaper)" "$(txt notif.wall.nohyprpaper)"
+  exit 1
+}
+
+if [[ ! -d $dir ]]; then
+  mkdir -p "$dir"
+  notify-send "$(txt notif.app.wallpaper)" "$(txt notif.wall.putimages "$dir")"
+  exit 0
+fi
+
+mapfile -t papers < <(find "$dir" -type f \
+  \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort)
+
+if [[ ${#papers[@]} -eq 0 ]]; then
+  notify-send "$(txt notif.app.wallpaper)" "$(txt notif.wall.noimages "$dir")"
+  exit 0
+fi
+
+choice=$(printf '%s\n' "${papers[@]}" | xargs -r -n1 basename |
+  fuzzel --dmenu --prompt "   " --placeholder "Escolher papel de parede..." \
+    --lines 14 --width 50) || exit 0
+[[ -z $choice ]] && exit 0
+
+paper="$dir/$choice"
+
+# O hyprpaper lê a configuração só na subida — inclusive o
+# `splash = false`. Por isso o .conf é escrito antes, mais abaixo,
+# e aqui só garantimos que ele esteja no ar.
+pgrep -x hyprpaper >/dev/null 2>&1 || { setsid -f hyprpaper >/dev/null 2>&1; sleep 1; }
+
+# Atenção: nesta versão do hyprpaper (0.8.x) só existem `wallpaper` e
+# `listactive`. `preload`, `reload`, `listloaded` e `unload` respondem
+# "invalid hyprpaper request" — o `wallpaper` já carrega a imagem.
+hyprctl hyprpaper wallpaper ",$paper" >/dev/null
+
+# Persiste para o próximo login
+mkdir -p "$HOME/.config/hypr"
+cat > "$HOME/.config/hypr/hyprpaper.conf" <<EOF
+# Gerado por rice-wallpaper — editar à mão é opcional.
+preload = $paper
+wallpaper = ,$paper
+splash = false
+ipc = on
+EOF
+
+# O bloqueio usa o papel de parede de fundo, e o caminho fica gravado
+# dentro do hyprlock.conf. Trocar o papel sem reaplicar o tema deixaria
+# o bloqueio mostrando a imagem antiga — ou nada, se ela tiver sumido.
+rice-theme set "$(rice-theme current)" >/dev/null 2>&1 || true
+
+notify-send -t 2000 "$(txt notif.app.wallpaper)" "$choice"

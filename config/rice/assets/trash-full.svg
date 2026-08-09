@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!--
+    Lixeira — estado cheio. Par de trash.svg; ver os comentários de lá
+    sobre por que o ícone é desenhado aqui e por que parte do branco.
+
+    A diferença entre os dois estados é de FORMA, não de cor: o corpo vem
+    preenchido e a tampa sai do lugar. Cor sozinha não serviria — com a
+    tinta do tema ligada, os dois ficariam do mesmo tom e o usuário não
+    teria como saber se há algo lá dentro sem abrir.
+  -->
+  <g stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Alça e tampa, tortas: a lata está cheia e a tampa não assentou -->
+    <g fill="none" transform="rotate(-9 128 58)">
+      <path d="M100 52 v-8 a10 10 0 0 1 10-10 h36 a10 10 0 0 1 10 10 v8"/>
+      <path d="M44 62 h168"/>
+    </g>
+    <!-- Corpo cheio -->
+    <path fill="#ffffff"
+          d="M68 78 l10 126 a16 16 0 0 0 16 15 h68 a16 16 0 0 0 16-15 l10-126 z"/>
+  </g>
+</svg>

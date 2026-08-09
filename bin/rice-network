@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Menu de rede. Esta máquina usa systemd-networkd em cabo (sem Wi-Fi),
+# então o menu foca no que existe: status, IP, DNS e reconfiguração.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+
+# Primeira interface física que não seja loopback
+iface() {
+  ip -o link show 2>/dev/null |
+    awk -F': ' '$2 != "lo" { print $2; exit }'
+}
+
+IF=$(iface)
+[[ -z ${IF:-} ]] && { notify-send "$(txt notif.app.net)" "$(txt notif.net.noiface)"; exit 1; }
+
+ip_addr()  { ip -4 -o addr show "$IF" 2>/dev/null | awk '{print $4}' | head -1; }
+gateway()  { ip -4 route show default 2>/dev/null | awk '{print $3; exit}'; }
+state()    { networkctl status "$IF" 2>/dev/null | awk -F': +' '/Online state:/ {print $2; exit}'; }
+speed()    { networkctl status "$IF" 2>/dev/null | awk -F': +' '/^ *Speed:/ {print $2; exit}'; }
+dns_list() { resolvectl dns "$IF" 2>/dev/null | sed -E 's/^Link [0-9]+ \([^)]*\): //'; }
+
+summary() {
+  printf '%s  ·  %s  ·  %s' "$IF" "$(ip_addr || echo 'sem IP')" "$(state || echo '?')"
+}
+
+menu() {
+  local -a L=(
+    "󰩠   Copiar meu IP"
+    "󰇖   Ver DNS"
+    "󰋽   Detalhes da conexão"
+    "󰑓   Reconfigurar interface"
+  )
+  command -v ping >/dev/null 2>&1 && L+=("󰓅   Testar conexão")
+
+  local idx
+  idx=$(printf '%s\n' "${L[@]}" |
+    fuzzel --dmenu --index --prompt "󰛳   " \
+      --placeholder "$(summary)" --lines "${#L[@]}" --width 44) || exit 0
+  [[ -z ${idx:-} ]] && exit 0
+
+  case "$idx" in
+    0)
+      printf '%s' "$(ip_addr | cut -d/ -f1)" | wl-copy
+      notify-send -t 2000 "$(txt notif.app.net)" "$(txt notif.net.ipcopied "$(ip_addr)")"
+      ;;
+    1)
+      notify-send -t 6000 "$(txt notif.net.dns "$IF")" "$(dns_list || txt notif.net.notset)"
+      ;;
+    2)
+      notify-send -t 8000 "$(txt cli.net.title "$IF")" \
+"IP:       $(ip_addr || echo '—')
+Gateway:  $(gateway || echo '—')
+Estado:   $(state || echo '—')
+Link:     $(speed || echo '—')
+DNS:      $(dns_list || echo '—')"
+      ;;
+    3)
+      # Precisa de root: o pkexec abre o diálogo gráfico de senha
+      # (o agente polkit sobe junto com a sessão, via autostart.lua).
+      if pkexec networkctl reconfigure "$IF" 2>/dev/null; then
+        notify-send -t 2500 "$(txt notif.app.net)" "$(txt notif.net.reconfigured "$IF")"
+      else
+        notify-send -u critical "$(txt notif.app.net)" "$(txt notif.net.reconfigfail "$IF")"
+      fi
+      ;;
+    4)
+      notify-send -t 2000 "$(txt notif.app.net)" "$(txt notif.net.testing)"
+      if ping -c 2 -W 2 1.1.1.1 >/dev/null 2>&1; then
+        local ms
+        ms=$(ping -c 3 -W 2 1.1.1.1 2>/dev/null | awk -F'/' 'END{printf "%.0f ms", $5}')
+        notify-send -t 4000 "$(txt notif.app.net)" "$(txt notif.net.online "$ms")"
+      else
+        notify-send -u critical -t 4000 "$(txt notif.app.net)" "$(txt notif.net.offline)"
+      fi
+      ;;
+  esac
+}
+
+case "${1:-menu}" in
+  menu)    menu ;;
+  status)  echo "$(summary)" ;;
+  *)       echo "$(txt cli.usage): rice-network [menu|status]" >&2; exit 2 ;;
+esac

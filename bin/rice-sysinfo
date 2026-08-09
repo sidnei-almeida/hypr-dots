@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# ┌──────────────────────────────────────────────────────────────┐
+# │  A linha de identidade da máquina, para o rodapé do hyprlock. │
+# └──────────────────────────────────────────────────────────────┘
+#
+#   rice-sysinfo          a linha inteira
+#
+# Sai daqui e não de um `cmd[]` inline no hyprlock.conf por dois
+# motivos: o hyprlock.conf é REGERADO a cada troca de tema (qualquer
+# coisa escrita à mão lá se perde), e um pipeline de cinco comandos
+# dentro de uma string de config é impossível de comentar.
+#
+# ── O QUE ENTRA, E O QUE NÃO ────────────────────────────────────
+#
+# Entra o que identifica a MÁQUINA: nome, sistema, kernel, compositor,
+# tempo ligado. É a informação que responde "que computador é este e
+# desde quando está de pé" — a pergunta que se faz olhando uma tela
+# bloqueada.
+#
+# NÃO entra nada de rede (IP, SSID, VPN) nem nome de arquivo aberto.
+# Tela de bloqueio é conteúdo PÚBLICO: fica acesa sozinha na mesa,
+# aparece em foto, em chamada de vídeo compartilhada e em cima do ombro
+# de quem passa. Uptime e versão de kernel não abrem porta nenhuma; um
+# IP interno ou o nome da VPN da empresa abrem.
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+SEP=" · "
+partes=()
+
+# ── Nome da máquina ─────────────────────────────────────────────
+# O bloqueio já mostra o $USER logo acima do campo; o host é a outra
+# metade da identidade e é o que distingue duas telas iguais quando se
+# tem mais de um computador.
+host=$(< /etc/hostname) 2>/dev/null || host=$(uname -n)
+[[ -n ${host:-} ]] && partes+=("$host")
+
+# ── Sistema ─────────────────────────────────────────────────────
+# PRETTY_NAME e não ID: é o nome como a distribuição se apresenta
+# ("Arch Linux", "CachyOS"), já com a maiúscula certa.
+if [[ -r /etc/os-release ]]; then
+    distro=$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-${NAME:-}}")
+    [[ -n ${distro:-} ]] && partes+=("$distro")
+fi
+
+# ── Kernel ──────────────────────────────────────────────────────
+#
+# Só a versão (`7.1.6`) esconderia justamente o que interessa nesta
+# máquina: o kernel não é o do Arch, é o do CachyOS. E o release cru
+# (`7.1.6-1-cachyos-bore-lto`) é uma sopa de sufixos de compilação que
+# ninguém lê num rodapé.
+#
+# O meio-termo é versão + SABOR: o primeiro campo não-numérico depois
+# do traço. Sem lista fixa de sabores conhecidos — assim `zen`, `lts`,
+# `xanmod` ou o que vier a existir aparecem sozinhos, e um kernel
+# baunilha (`7.1.6-arch1-1`) mostra só a versão.
+kr=$(uname -r)
+kver=${kr%%-*}
+ksabor=""
+IFS='-' read -ra _campos <<< "${kr#*-}"
+for _c in "${_campos[@]}"; do
+    # Puramente numérico é número de build, não sabor.
+    [[ $_c =~ ^[0-9]+$ ]] && continue
+    # `arch1`, `arch2`… é o kernel baunilha da própria distro: já está
+    # dito na linha anterior, repetir só ocupa espaço.
+    [[ $_c =~ ^arch[0-9]*$ ]] && continue
+    ksabor="$_c"
+    break
+done
+partes+=("Linux ${kver}${ksabor:+-$ksabor}")
+
+# ── Compositor ──────────────────────────────────────────────────
+# `hyprctl version` e não o pacote instalado: o que importa é o que
+# está RODANDO — depois de um `pacman -Syu` os dois divergem até o
+# próximo login, e é exatamente aí que a versão é consultada.
+if command -v hyprctl >/dev/null 2>&1; then
+    # `head -1` DEPOIS do grep, e não só o `-m1`: aquele limita as
+    # LINHAS lidas, e a primeira linha do `hyprctl version` traz a versão
+    # duas vezes (a tag e a branch), o que colava "0.56.2\n0.56.2".
+    hver=$(hyprctl version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [[ -n ${hver:-} ]] && partes+=("Hyprland $hver")
+fi
+
+# ── Tema em uso ─────────────────────────────────────────────────
+#
+# O bloqueio é a única tela do rice que aparece sem nada em volta: sem
+# barra, sem dock, sem janela. Dizer QUAL tema está aplicado fecha a
+# identidade — a paleta já está na tela, aqui ela ganha nome.
+#
+# Lido dos arquivos, e não de `rice-theme current`: aquele é um script de
+# 1100 linhas e isto roda de minuto em minuto enquanto a tela está
+# bloqueada. O slug mora em ~/.config/rice/current; o nome de exibição
+# ("Hotrod", e não "hotrod") é o NAME= de dentro do tema.
+#
+# O `source` vai num SUBSHELL de propósito: o arquivo de tema define BG,
+# ACCENT e mais dez variáveis, e trazer tudo isso para cá poderia
+# atropelar nomes deste script sem aviso.
+_cur="$HOME/.config/rice/current"
+if [[ -r $_cur ]]; then
+    _slug=$(< "$_cur")
+    _arq="$HOME/.config/rice/themes/${_slug}.sh"
+    if [[ -r $_arq ]]; then
+        _nome=$( . "$_arq" >/dev/null 2>&1; printf '%s' "${NAME:-}" )
+        partes+=("$(txt lock.theme "${_nome:-$_slug}")")
+    fi
+fi
+
+# ── Tempo ligado ────────────────────────────────────────────────
+#
+# De /proc/uptime e não do `uptime -p`: aquele devolve a frase já
+# montada e SEMPRE em inglês (ele não passa por gettext), o que daria
+# "up 3 hours" no meio de uma linha traduzida.
+#
+# A granularidade cai conforme o número cresce — dias com horas, horas
+# com minutos, e só minutos no começo. Ninguém quer ler "2 d 4 h 37 min"
+# num rodapé, e o minuto de um uptime de dias não informa nada.
+if [[ -r /proc/uptime ]]; then
+    read -r _s _ < /proc/uptime
+    s=${_s%%.*}
+    d=$(( s / 86400 ))
+    h=$(( s % 86400 / 3600 ))
+    m=$(( s % 3600 / 60 ))
+    if   (( d > 0 )); then tempo="${d} d ${h} h"
+    elif (( h > 0 )); then tempo="${h} h ${m} min"
+    else                   tempo="${m} min"
+    fi
+    partes+=("$(txt lock.uptime "$tempo")")
+fi
+
+# `printf` com o separador entre os elementos, e não um `echo` com
+# concatenação: assim uma parte ausente (host sem nome, hyprctl fora do
+# PATH) não deixa um " · " órfão na ponta da linha.
+printf '%s' "${partes[0]}"
+for ((i = 1; i < ${#partes[@]}; i++)); do printf '%s%s' "$SEP" "${partes[i]}"; done
+printf '\n'

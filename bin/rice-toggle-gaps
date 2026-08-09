@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Alterna entre janelas espaçadas e janelas coladas (modo "foco").
+# Volta ao normal sozinho quando o Hyprland recarrega a configuração.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+state="$HOME/.cache/rice/gaps-off"
+mkdir -p "$(dirname "$state")"
+
+# Atenção: com a configuração em Lua, `hyprctl keyword` não funciona.
+# O caminho certo é `hyprctl eval` chamando hl.config().
+if [[ -f $state ]]; then
+  hyprctl eval 'hl.config({ general = { gaps_in = 5, gaps_out = 10 } })' >/dev/null
+  rm -f "$state"
+  notify-send -t 1500 "$(txt notif.app.gaps)" "$(txt notif.gaps.normal)"
+else
+  hyprctl eval 'hl.config({ general = { gaps_in = 0, gaps_out = 0 } })' >/dev/null
+  touch "$state"
+  notify-send -t 1500 "$(txt notif.app.gaps)" "$(txt notif.gaps.none)"
+fi

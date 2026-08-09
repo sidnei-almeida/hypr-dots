@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Favoritos do dock, em ~/.config/rice/pill.json (chave dockFavoritos).
+#
+#   rice-dock listar
+#   rice-dock fixar <id>       id é o do .desktop, sem a extensão
+#   rice-dock soltar <id>
+#   rice-dock alternar <id>    fixa se não estiver, solta se estiver
+#   rice-dock tinta [0..100]   quanto os ícones puxam para a cor do tema
+#   rice-dock lixeira [on|off] mostra ou esconde a lixeira
+#
+# O id vem do appId da janela, que nem sempre bate com o nome do arquivo
+# .desktop em maiúsculas/minúsculas — por isso a comparação é feita toda
+# em minúsculas.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+CFG="$HOME/.config/rice/pill.json"
+[[ -f $CFG ]] || echo '{}' > "$CFG"
+
+grava() {
+  local tmp; tmp=$(mktemp)
+  cat > "$tmp" && mv "$tmp" "$CFG"
+
+  # Regenera os ícones resolvidos junto com a lista.
+  #
+  # É aqui e não em `fixar`/`soltar` separados porque toda mudança da
+  # lista passa por esta função — inclusive as que vierem depois. Deixar
+  # em cada uma delas é garantir que a terceira, quando existir, esqueça.
+  #
+  # A pasta é REGENERADA inteira, então soltar um favorito remove o link
+  # dele sem nenhuma lógica de remoção: o que não é gerado deixa de
+  # existir. Era essa a parte "apagar quando remover" do pedido.
+  command -v rice-dock-icones >/dev/null 2>&1 && rice-dock-icones >/dev/null 2>&1 || true
+}
+
+listar() { jq -r '.dockFavoritos // [] | .[]' "$CFG"; }
+
+tem() {
+  jq -e --arg id "${1,,}" \
+     '(.dockFavoritos // []) | map(ascii_downcase) | index($id)' \
+     "$CFG" >/dev/null 2>&1
+}
+
+fixar() {
+  tem "$1" && return 0
+  jq --arg id "$1" '.dockFavoritos = ((.dockFavoritos // []) + [$id])' "$CFG" | grava
+  notify-send -t 2000 "$(txt notif.app.dock)" "$(txt dock.pinned "$1")" 2>/dev/null || true
+}
+
+soltar() {
+  jq --arg id "${1,,}" \
+     '.dockFavoritos = ((.dockFavoritos // []) | map(select(ascii_downcase != $id)))' \
+     "$CFG" | grava
+  notify-send -t 2000 "$(txt notif.app.dock)" "$(txt dock.unpinned "$1")" 2>/dev/null || true
+}
+
+# A barra observa o pill.json, então gravar já repinta o dock — não há
+# nada para reiniciar depois destes dois.
+tinta() {
+  [[ -z ${1:-} ]] && { jq -r '.dockTinta // 30' "$CFG"; return; }
+  [[ $1 =~ ^[0-9]+$ ]] && (( $1 <= 100 )) || {
+    echo "rice-dock: tinta vai de 0 a 100" >&2; exit 1; }
+  jq --argjson v "$1" '.dockTinta = $v' "$CFG" | grava
+}
+
+lixeira() {
+  case "${1:-}" in
+    "")      jq -r '.dockLixeira // true' "$CFG" ;;
+    on|sim)  jq '.dockLixeira = true'  "$CFG" | grava ;;
+    off|nao) jq '.dockLixeira = false' "$CFG" | grava ;;
+    *) echo "rice-dock: use 'lixeira on' ou 'lixeira off'" >&2; exit 1 ;;
+  esac
+}
+
+case "${1:-listar}" in
+  listar)   listar ;;
+  fixar)    fixar "${2:?id}" ;;
+  soltar)   soltar "${2:?id}" ;;
+  alternar) if tem "${2:?id}"; then soltar "$2"; else fixar "$2"; fi ;;
+  tinta)    tinta "${2:-}" ;;
+  lixeira)  lixeira "${2:-}" ;;
+  *) echo "$(txt cli.usage): rice-dock [listar|fixar <id>|soltar <id>|alternar <id>|tinta <0..100>|lixeira <on|off>]" >&2; exit 2 ;;
+esac

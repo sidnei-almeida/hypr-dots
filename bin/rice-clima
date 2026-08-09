@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Clima, via Open-Meteo.
+#
+#   rice-clima              código WMO e temperatura, uma linha ("3 22")
+#   rice-clima buscar <nome>  cidades que casam com o nome (json)
+#   rice-clima definir <nome> busca e grava a primeira no pill.json
+#   rice-clima onde          cidade configurada agora
+#
+# Open-Meteo e não wttr.in nem OpenWeatherMap: não pede chave de API
+# (nada de credencial guardada em arquivo do rice), devolve JSON estável
+# e usa códigos WMO, que são um vocabulário fechado — dá para mapear
+# ícone sem adivinhar string de texto livre em idioma variável.
+#
+# Quem traduz código em ícone é o Clima.qml, não este script. Aqui é só
+# dado; a aparência é do QML, como no rice-sysstat.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+API_TEMPO="https://api.open-meteo.com/v1/forecast"
+API_GEO="https://geocoding-api.open-meteo.com/v1/search"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/rice-clima"
+CACHE_SEGUNDOS=600
+
+pill() { "$HOME/.local/bin/rice-pill" "$@" 2>/dev/null; }
+
+# ── consulta ──────────────────────────────────────────────────────────
+agora() {
+    local lat lon
+    lat=$(pill get weatherLat); lon=$(pill get weatherLon)
+
+    # Sem local definido não há o que mostrar. Silêncio, e não erro: o
+    # módulo da barra simplesmente não aparece até você escolher a cidade.
+    [[ -z $lat || -z $lon || $lat == "null" || $lon == "null" ]] && exit 0
+
+    # Cache curto. A barra pede a cada 30min, mas todo reload do
+    # Quickshell reinicia o Process — sem isto, mexer no rice bombardeia
+    # a API e acaba em rate-limit.
+    if [[ -f $CACHE ]]; then
+        local idade=$(( $(date +%s) - $(stat -c %Y "$CACHE") ))
+        if (( idade < CACHE_SEGUNDOS )); then cat "$CACHE"; return; fi
+    fi
+
+    local resp
+    resp=$(curl -sf --max-time 10 \
+        "$API_TEMPO?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code" \
+        ) || { [[ -f $CACHE ]] && cat "$CACHE"; exit 0; }
+
+    local saida
+    saida=$(jq -r '"\(.current.weather_code) \(.current.temperature_2m | round)"' \
+        <<<"$resp" 2>/dev/null) || exit 0
+
+    [[ $saida == "null null" ]] && exit 0
+
+    mkdir -p "$(dirname "$CACHE")"
+    printf '%s\n' "$saida" | tee "$CACHE"
+}
+
+# ── geocoding ─────────────────────────────────────────────────────────
+buscar() {
+    local nome=${1:?nome da cidade}
+    curl -sf --max-time 10 --get --data-urlencode "name=$nome" \
+        --data "count=8&language=pt&format=json" "$API_GEO" \
+        | jq -c '[.results[]? | {
+              nome: ([.name, .admin1, .country] | map(select(. != null)) | join(", ")),
+              lat: .latitude, lon: .longitude
+          }]'
+}
+
+definir() {
+    local nome=${1:?nome da cidade}
+    local achados; achados=$(buscar "$nome")
+
+    if [[ -z $achados || $achados == "[]" ]]; then
+        echo "rice-clima: $(txt cli.clima.nocity "$nome")" >&2
+        exit 1
+    fi
+
+    local n lat lon
+    n=$(jq -r '.[0].nome' <<<"$achados")
+    lat=$(jq -r '.[0].lat' <<<"$achados")
+    lon=$(jq -r '.[0].lon' <<<"$achados")
+
+    pill set weatherCidade "$n"
+    pill set weatherLat "$lat"
+    pill set weatherLon "$lon"
+
+    rm -f "$CACHE"   # o cache é do lugar antigo; força buscar de novo
+    echo "$n"
+}
+
+onde() { pill get weatherCidade; }
+
+case "${1:-agora}" in
+    agora)   agora ;;
+    buscar)  buscar "${2:?nome da cidade}" ;;
+    definir) definir "${2:?nome da cidade}" ;;
+    onde)    onde ;;
+    *) echo "rice-clima: subcomando desconhecido '${1}'" >&2; exit 1 ;;
+esac

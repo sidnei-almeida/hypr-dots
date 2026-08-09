@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# ┌──────────────────────────────────────────────────────────────┐
+# │  Faz o desbloqueio da TELA destravar também o COFRE.          │
+# └──────────────────────────────────────────────────────────────┘
+#
+#   rice-keyring              diagnóstico: diz o que falta
+#   rice-keyring migrar       renomeia o cofre para `login`
+#   rice-keyring reverter     desfaz a renomeação
+#
+# ── O PROBLEMA ──────────────────────────────────────────────────
+#
+# Esta máquina entra sozinha (autologin no tty1). Autologin é login SEM
+# SENHA: o PAM nunca vê uma senha no boot, e por isso não tem como
+# destravar o cofre do gnome-keyring — que é onde o navegador, o VS Code
+# e o cliente de e-mail guardam os segredos deles.
+#
+# O resultado é o pedido de senha avulso, no meio do dia, cada vez que
+# um desses aplicativos vai ler o que guardou.
+#
+# Só que a senha JÁ é digitada uma vez por dia: no hyprlock, que sobe
+# junto com a sessão. Aquele momento é a única autenticação real que
+# existe aqui, então é ele que tem de destravar o cofre.
+#
+# ── AS TRÊS PEÇAS ───────────────────────────────────────────────
+#
+#   1. O cofre precisa se chamar `login`.  O pam_gnome_keyring destrava
+#      UM cofre, o de nome `login` — não é configurável. O padrão do
+#      gnome-keyring quando ele é criado pela interface gráfica é
+#      `Default_Keyring`, que o PAM ignora. É isto que este script faz.
+#
+#   2. A senha do cofre precisa ser a MESMA do usuário.  O PAM repassa
+#      a senha que você digitou; se o cofre espera outra, ele continua
+#      trancado. Trocar a senha do cofre é feito no Seahorse
+#      ("Senhas e chaves" → botão direito no cofre → Alterar senha) e
+#      exige a senha atual — por isso não é feito aqui.
+#
+#   3. O PAM do hyprlock precisa chamar o módulo — na fase `auth`, e SÓ
+#      nela. O hyprlock chama apenas pam_authenticate(); pam_setcred() e
+#      pam_open_session() ele nunca chama (`nm -D /usr/bin/hyprlock |
+#      grep pam_`), então uma linha `session` no arquivo é letra morta —
+#      foi por acreditar nela que isto passou dias sem funcionar. Quem
+#      destrava é o pam_sm_authenticate do próprio módulo, falando com o
+#      daemon já rodando pelo socket $XDG_RUNTIME_DIR/keyring/control.
+#      É a única parte que pede root; o comando sai no diagnóstico.
+#
+# Nada disso enfraquece o cofre: ele continua criptografado com uma
+# senha. O que muda é QUEM a digita — você, na tela de bloqueio, em vez
+# de um pedido avulso do navegador.
+
+set -uo pipefail
+
+KDIR="$HOME/.local/share/keyrings"
+PAM=/etc/pam.d/hyprlock
+verde=$'\e[32m'; verm=$'\e[31m'; ama=$'\e[33m'; zero=$'\e[0m'
+ok(){ printf '%s  ✓%s %s\n' "$verde" "$zero" "$1"; }
+nao(){ printf '%s  ✗%s %s\n' "$verm" "$zero" "$1"; }
+info(){ printf '%s  ·%s %s\n' "$ama" "$zero" "$1"; }
+
+diagnostico() {
+    echo
+    echo "  Cofre de senhas — estado"
+    echo
+
+    if [[ -f $KDIR/login.keyring ]]; then
+        ok "existe o cofre 'login' (o nome que o PAM procura)"
+    else
+        nao "não existe cofre 'login'"
+        local outros
+        outros=$(find "$KDIR" -maxdepth 1 -name '*.keyring' -printf '%f\n' 2>/dev/null | paste -sd', ')
+        [[ -n $outros ]] && info "cofres existentes: $outros"
+        info "renomeie com:  rice-keyring migrar"
+    fi
+
+    # O arquivo `default` é o cofre que os aplicativos usam quando não
+    # pedem um pelo nome — que é o caso de praticamente todos.
+    if [[ -f $KDIR/default ]]; then
+        local padrao; padrao=$(< "$KDIR/default")
+        if [[ $padrao == login ]]; then
+            ok "o cofre padrão é 'login'"
+        else
+            nao "o cofre padrão é '$padrao', não 'login'"
+        fi
+    fi
+
+    # Tem de ser na fase `auth`. Achar o módulo numa linha `session` não
+    # vale nada — o hyprlock nunca abre sessão PAM, aquela linha não roda.
+    if grep -qE '^[[:space:]]*auth.*pam_gnome_keyring' "$PAM" 2>/dev/null; then
+        ok "o hyprlock chama o pam_gnome_keyring na fase auth"
+    else
+        nao "o hyprlock NÃO chama o pam_gnome_keyring na fase auth"
+        grep -qE '^[[:space:]]*session.*pam_gnome_keyring' "$PAM" 2>/dev/null &&
+            info "há uma linha 'session' — essa o hyprlock nunca executa"
+        info "precisa de root — o comando está no fim"
+    fi
+
+    # O daemon precisa estar de pé com o socket de controle: é por ele
+    # que o módulo do PAM manda a senha.
+    if [[ -S /run/user/$(id -u)/keyring/control ]]; then
+        ok "o gnome-keyring está rodando"
+    else
+        nao "o gnome-keyring não está rodando (nada a destravar)"
+    fi
+
+    echo
+    if ! grep -qE '^[[:space:]]*auth.*pam_gnome_keyring' "$PAM" 2>/dev/null; then
+        cat <<'FIM'
+  Falta a parte com root. Rode:
+
+    sudo tee /etc/pam.d/hyprlock >/dev/null <<'EOF'
+# PAM do hyprlock.
+#
+# A linha do gnome-keyring faz o desbloqueio da tela destravar também o
+# cofre de senhas — sem ela, cada aplicativo pede a senha do cofre por
+# conta própria durante o dia. Ver ~/.local/bin/rice-keyring.
+#
+# É uma linha só, e de `auth`: o hyprlock chama apenas pam_authenticate(),
+# nunca pam_setcred() nem pam_open_session(), então linha `session` aqui
+# não roda nunca. A ordem importa — o `include login` roda o pam_unix,
+# que é quem deixa a senha em PAM_AUTHTOK para o módulo do cofre ler.
+#
+# `optional` de propósito: se o gnome-keyring não estiver instalado ou
+# falhar, a tela ainda destrava. Cofre é conveniência; ficar trancado
+# para fora da própria sessão, não.
+auth        include     login
+auth        optional    pam_gnome_keyring.so
+EOF
+
+FIM
+    fi
+}
+
+migrar() {
+    [[ -d $KDIR ]] || { echo "rice-keyring: não há $KDIR"; exit 1; }
+
+    if [[ -f $KDIR/login.keyring ]]; then
+        echo "rice-keyring: já existe login.keyring — nada a fazer."
+        exit 0
+    fi
+
+    # Qual cofre migrar: o que estiver marcado como padrão. É o que os
+    # aplicativos usam, então é o que precisa virar `login`.
+    local origem="Default_Keyring"
+    [[ -f $KDIR/default ]] && origem=$(< "$KDIR/default")
+    [[ -f "$KDIR/$origem.keyring" ]] || {
+        echo "rice-keyring: não achei $KDIR/$origem.keyring"; exit 1; }
+
+    # Backup ANTES de encostar em qualquer coisa: aqui dentro moram as
+    # senhas salvas do navegador e as chaves do VS Code. Um erro sem
+    # cópia é perda de dado que não se recupera.
+    local bkp="$KDIR.bak-$(date +%Y%m%d-%H%M%S)"
+    cp -a "$KDIR" "$bkp" || { echo "rice-keyring: falhou o backup"; exit 1; }
+    echo "backup: $bkp"
+
+    # O daemon mantém o cofre aberto em memória e reescreve o arquivo ao
+    # sair. Renomear com ele rodando faria o cofre velho reaparecer.
+    pkill -x gnome-keyring-d 2>/dev/null
+    pkill -f 'gnome-keyring-daemon' 2>/dev/null
+    sleep 1
+
+    mv "$KDIR/$origem.keyring" "$KDIR/login.keyring"
+    printf 'login' > "$KDIR/default"
+
+    echo "renomeado: $origem → login"
+    echo
+    echo "Falta reiniciar a sessão (ou o gnome-keyring) para valer,"
+    echo "e conferir que a senha do cofre é a mesma do usuário —"
+    echo "Seahorse → botão direito no cofre 'login' → Alterar senha."
+}
+
+reverter() {
+    local bkp
+    bkp=$(find "$(dirname "$KDIR")" -maxdepth 1 -name 'keyrings.bak-*' | sort | tail -1)
+    [[ -n ${bkp:-} ]] || { echo "rice-keyring: nenhum backup encontrado"; exit 1; }
+    pkill -f 'gnome-keyring-daemon' 2>/dev/null; sleep 1
+    rm -rf "$KDIR" && cp -a "$bkp" "$KDIR" && echo "restaurado de $bkp"
+}
+
+case "${1:-diagnostico}" in
+    migrar)   migrar ;;
+    reverter) reverter ;;
+    *)        diagnostico ;;
+esac

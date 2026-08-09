@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 260" width="680" height="260">
+  <!--
+    PraXe OS — logo completo: símbolo, filete e assinatura.
+    As cores saem das duas variáveis abaixo; trocando as duas, o logo
+    acompanha qualquer tema.
+  -->
+  <style>
+    .marca  { stroke: #c9a94e; }
+    .nome   { fill:   #c9a94e; }
+    .lema   { fill:   #8a8378; }
+    .filete { stroke: #54492c; }
+  </style>
+
+  <rect width="680" height="260" fill="#0a0a0a"/>
+
+  <!-- Símbolo -->
+  <g class="marca" fill="none" stroke-width="6"
+     stroke-linejoin="round" stroke-linecap="round"
+     transform="translate(96 64) scale(1.32)">
+    <path d="M50 6 L88 28 L88 72 L50 94 L12 72 L12 28 Z"/>
+    <path d="M31 71 L50 29 L69 71"/>
+    <path d="M26 60 L74 60"/>
+  </g>
+
+  <!-- Filete separando símbolo e assinatura -->
+  <line class="filete" x1="266" y1="72" x2="266" y2="188" stroke-width="2"/>
+
+  <!-- Assinatura -->
+  <text class="nome" x="306" y="140"
+        font-family="JetBrainsMono Nerd Font, JetBrains Mono, monospace"
+        font-size="46" font-weight="700" letter-spacing="1">PraxeOS</text>
+
+  <text class="lema" x="308" y="172"
+        font-family="JetBrainsMono Nerd Font, JetBrains Mono, monospace"
+        font-size="15" letter-spacing="2.4">ninguém manda, todos constroem</text>
+</svg>
