@@ -67,12 +67,16 @@ if [[ -z $IMG ]]; then
 fi
 [[ -f ${IMG:-} ]] || erro "não achei a imagem: ${IMG:-(nenhuma)}"
 
-python3 - "$IMG" "$MODO" "$NOME" "$PAPIRUS" "$THEMES" <<'PYTHON'
+# Os nomes de matiz vêm do dicionário do rice, na ordem em que o Python
+# espera. Resolvidos aqui porque o `txt` é uma função de shell.
+NOMES_COR="$(txt hue.red)|$(txt hue.amber)|$(txt hue.gold)|$(txt hue.green)|$(txt hue.teal)|$(txt hue.blue)|$(txt hue.violet)|$(txt hue.pink)"
+
+python3 - "$IMG" "$MODO" "$NOME" "$PAPIRUS" "$THEMES" "$NOMES_COR" <<'PYTHON'
 import sys, os, math, re, glob, unicodedata
 import numpy as np
 from PIL import Image
 
-img, modo, nome, papirus, themes = sys.argv[1:6]
+img, modo, nome, papirus, themes, nomes_cor = sys.argv[1:7]
 
 # ── OKLab ───────────────────────────────────────────────────────
 # Escolhido em vez de CIELAB por causa do MATIZ: o Lab clássico torce o
@@ -266,9 +270,44 @@ def slug(s):
     s = re.sub(r'[^a-zA-Z0-9]+','-', s).strip('-').lower()
     return s or "auto"
 
+# ── O nome do tema ──────────────────────────────────────────────
+#
+# Do ARQUIVO quando ele tem nome de gente; da COR quando não tem.
+#
+# "nord-lua.jpg" vira "Nord Lua", que é bom. Mas papel baixado costuma
+# chegar como "bdjjw17581gh1.png", e o tema nascia "Bdjjw17581Gh1" — um
+# nome que não diz nada sobre nada e que fica para sempre na lista.
+#
+# A regra: sem separador, com dígito no meio e comprido é hash. Nesse
+# caso o nome sai da cor de acento, que é a coisa mais parecida com o que
+# a pessoa diria ao descrever o tema ("o azul", "o âmbar").
 base = os.path.splitext(os.path.basename(img))[0]
-nome = nome or base.replace("-"," ").replace("_"," ").title()
-sl   = slug(nome)
+
+def parece_hash(b):
+    return ("-" not in b and "_" not in b
+            and any(c.isdigit() for c in b)
+            and len(b) > 7)
+
+if not nome:
+    if parece_hash(base):
+        # Oito faixas de matiz, começando no vermelho. A borda em -22.5°
+        # centraliza a primeira faixa no vermelho puro em vez de cortá-lo
+        # ao meio entre a primeira e a última.
+        faixas = nomes_cor.split("|")
+        graus = (math.degrees(h) - (-22.5)) % 360
+        nome = faixas[int(graus // 45) % 8]
+    else:
+        nome = base.replace("-", " ").replace("_", " ").title()
+
+sl = slug(nome)
+
+# Nome de cor repete com facilidade — dois papéis azuis dariam dois temas
+# "Azul", e o segundo sobrescreveria o primeiro em silêncio. Numera a
+# partir do segundo.
+if os.path.exists(os.path.join(themes, sl + ".sh")):
+    i = 2
+    while os.path.exists(os.path.join(themes, f"{sl}-{i}.sh")): i += 1
+    sl, nome = f"{sl}-{i}", f"{nome} {i}"
 
 cor = lambda hx: f"\033[48;2;{int(hx[0:2],16)};{int(hx[2:4],16)};{int(hx[4:6],16)}m    \033[0m"
 print()

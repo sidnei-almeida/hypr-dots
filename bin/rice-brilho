@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# ┌──────────────────────────────────────────────────────────────┐
+# │  Brilho do MONITOR, por DDC/CI.                               │
+# └──────────────────────────────────────────────────────────────┘
+#
+#   rice-brilho            valor atual, 0 a 100
+#   rice-brilho 60         define
+#   rice-brilho +5         relativo
+#   rice-brilho -5
+#   rice-brilho barramento mostra o barramento detectado
+#
+# ── POR QUE NÃO É brightnessctl ─────────────────────────────────
+#
+# Esta máquina é desktop: `/sys/class/backlight` está VAZIO, e o
+# `brightnessctl -l` só enxerga LED de placa de rede e de tecla. Não há
+# retroiluminação para o sistema controlar — o brilho mora no monitor.
+#
+# O caminho é DDC/CI: falar com o monitor pelo próprio cabo de vídeo, no
+# barramento I²C. Daí o ddcutil, o módulo `i2c-dev` e o grupo `i2c`.
+#
+# Os atalhos XF86MonBrightness apontavam para o brightnessctl, ou seja,
+# não faziam nada nesta máquina — as teclas existiam e o brilho não mudava.
+#
+# ── O BARRAMENTO É CACHEADO, E É DISSO QUE VEM A VELOCIDADE ─────
+#
+# Medido aqui:
+#
+#     ddcutil setvcp 10 95                335 ms
+#     ddcutil --bus 10 setvcp 10 95        67 ms      ← 5x
+#     ddcutil --bus 10 --noverify ...      65 ms      (não compensa)
+#     ddcutil --bus 10 --sleep-mult .2    126 ms      (PIORA: retenta)
+#
+# Quase todo o custo do comando padrão é REDESCOBRIR o barramento a cada
+# chamada — varrer os /dev/i2c-*, ler EDID de cada um. O número é estável
+# enquanto o monitor não mudar de porta, então é lido uma vez e guardado.
+#
+# 67 ms é o que torna um controle deslizante possível. Com 335 ms cada
+# arrasto viraria uma fila de comandos e o brilho chegaria segundos depois
+# do dedo.
+#
+# Ainda assim NÃO é instantâneo como o volume (que é PipeWire, em memória).
+# Quem chama isto de uma barra deve mover o controle na hora e mandar o
+# valor DEPOIS que o arrasto parar — nunca a cada pixel.
+
+set -uo pipefail
+
+CACHE="$HOME/.cache/rice/ddc-bus"
+VCP=10   # o código VCP do brilho, padrão do MCCS
+
+command -v ddcutil >/dev/null 2>&1 || {
+    echo "rice-brilho: ddcutil não instalado" >&2; exit 1; }
+
+# Descobre o barramento e guarda. Revalida sempre que o valor guardado
+# deixar de responder — trocar o monitor de porta muda o número, e um
+# cache velho falharia em silêncio para sempre.
+barramento() {
+    local b
+    if [[ -r $CACHE ]]; then
+        b=$(< "$CACHE")
+        if [[ -n $b ]] && ddcutil --bus "$b" getvcp "$VCP" >/dev/null 2>&1; then
+            printf '%s' "$b"; return 0
+        fi
+    fi
+    b=$(ddcutil detect 2>/dev/null | grep -m1 -oE '/dev/i2c-[0-9]+' | grep -oE '[0-9]+$')
+    [[ -n ${b:-} ]] || { echo "rice-brilho: nenhum monitor DDC/CI encontrado" >&2; return 1; }
+    mkdir -p "$(dirname "$CACHE")"; printf '%s' "$b" > "$CACHE"
+    printf '%s' "$b"
+}
+
+BUS=$(barramento) || exit 1
+
+ler() {
+    ddcutil --bus "$BUS" getvcp "$VCP" 2>/dev/null |
+        grep -oE 'current value = +[0-9]+' | grep -oE '[0-9]+$'
+}
+
+definir() {
+    local v=$1
+    # Trava nas pontas. Zero apaga a tela em alguns monitores e a pessoa
+    # fica sem enxergar para desfazer — 5 é o piso do que ainda se lê.
+    (( v < 5   )) && v=5
+    (( v > 100 )) && v=100
+    ddcutil --bus "$BUS" setvcp "$VCP" "$v" >/dev/null 2>&1 && printf '%s\n' "$v"
+}
+
+case "${1:-}" in
+    "")           ler ;;
+    barramento)   echo "$BUS" ;;
+    +*|-*)        atual=$(ler); [[ -n ${atual:-} ]] || exit 1
+                  definir $(( atual + ${1} )) ;;
+    *[!0-9]*)     echo "rice-brilho: valor inválido: $1" >&2; exit 1 ;;
+    *)            definir "$1" ;;
+esac
