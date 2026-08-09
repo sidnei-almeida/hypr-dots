@@ -1,8 +1,0 @@
-[Desktop Entry]
-Name=Resident Evil 2
-Comment=Play this game on Steam
-Exec=steam steam://rungameid/883710
-Icon=steam_icon_883710
-Terminal=false
-Type=Application
-Categories=Game;

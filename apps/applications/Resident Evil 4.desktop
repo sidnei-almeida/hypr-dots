@@ -1,8 +1,0 @@
-[Desktop Entry]
-Name=Resident Evil 4
-Comment=Play this game on Steam
-Exec=steam steam://rungameid/2050650
-Icon=steam_icon_2050650
-Terminal=false
-Type=Application
-Categories=Game;

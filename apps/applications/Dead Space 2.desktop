@@ -1,8 +1,0 @@
-[Desktop Entry]
-Name=Dead Space 2
-Comment=Play this game on Steam
-Exec=steam steam://rungameid/47780
-Icon=steam_icon_47780
-Terminal=false
-Type=Application
-Categories=Game;
