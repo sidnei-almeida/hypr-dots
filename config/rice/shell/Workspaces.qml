@@ -154,36 +154,83 @@ GridLayout {
             // isso 14 e não 12.
             readonly property bool naBarra: PraxeConfig.layout === "bar" && !PraxeConfig.vertical
 
+            // ── A ALTURA É A MESMA PARA TODOS. ──────────────────
+            //
+            // Era isto que fazia a fileira parecer grosseira: a área ativa
+            // tinha 16px de altura contra 8px dos pontos, o dobro. Uma
+            // fileira com um caroço no meio deixa de ser uma linha.
+            //
+            // O indicador ativo agora é mais LONGO, nunca mais alto — o
+            // princípio do indicador de página do iOS. A régua continua
+            // sendo uma linha reta e a ativa se lê pelo comprimento e pela
+            // cor, que é informação de sobra.
+            //
+            // ── E o número sai no modo barra ────────────────────
+            //
+            // Ele existia porque o Hyprland destrói área vazia: sem as dez
+            // sempre à vista, ir para a 6, 8 ou 12 dava a MESMA figura e a
+            // posição deixava de significar o número.
+            //
+            // Em modo barra isso não vale mais: o piso subiu para o teto e a
+            // régua é contígua de 1 a 10, então a posição já diz qual é. O
+            // dígito passou a resolver um problema que não existe ali, ao
+            // custo de dobrar a altura da peça inteira.
+            //
+            // Na CÁPSULA ele fica: lá a régua é curta e pode começar em
+            // qualquer ponto, e sem o número a ambiguidade volta.
             Layout.preferredWidth: PraxeConfig.vertical
-                ? Math.round((isActive ? 18 : 8) * Theme.scale)
-                // O piso é de FORMA, não de espaço: abaixo dele a pill de um
-                // dígito vira círculo e a fileira perde a leitura de "esta é
-                // a alongada". Dois dígitos passam disso sozinhos.
-                : (isActive ? Math.max(Math.round((naBarra ? 20 : 24) * Theme.scale),
-                                       Math.round(numero.implicitWidth + (naBarra ? 10 : 12) * Theme.scale))
-                            : Math.round((naBarra ? 6 : 8) * Theme.scale))
+                ? Math.round((isActive ? 18 : 7) * Theme.scale)
+                : (isActive
+                     ? (naBarra
+                          // Sem dígito: comprimento fixo, três vezes o ponto.
+                          ? Math.round(20 * Theme.scale)
+                          // Com dígito: o piso é de FORMA, para a pill de um
+                          // dígito não virar círculo. Dois dígitos passam
+                          // disso sozinhos.
+                          : Math.max(Math.round(22 * Theme.scale),
+                                     Math.round(numero.implicitWidth + 11 * Theme.scale)))
+                     : Math.round((naBarra ? 6 : 7) * Theme.scale))
             Layout.preferredHeight: PraxeConfig.vertical
                 ? (isActive ? Math.max(Math.round(22 * Theme.scale),
                                        Math.round(numero.implicitHeight + 8 * Theme.scale))
-                            : Math.round(8 * Theme.scale))
-                : Math.round((isActive ? (naBarra ? 14 : 16)
-                                       : (naBarra ? 6  : 8)) * Theme.scale)
+                            : Math.round(7 * Theme.scale))
+                : (naBarra
+                     // Barra: MESMA altura para ativo e inativo. A linha
+                     // permanece reta de ponta a ponta.
+                     ? Math.round(6 * Theme.scale)
+                     : Math.round((isActive ? 15 : 7) * Theme.scale))
             radius: height / 2
 
             // Fantasma fica em DIM, a mesma cor da área existente e vazia:
             // as duas são, para quem olha, a mesma coisa — lugar sem nada.
             // Distingui-las com uma terceira cor seria informação sobre a
             // contabilidade interna do compositor, não sobre o trabalho.
-            color: isActive ? PraxeConfig.colAccent
-                            : (hasWindows ? PraxeConfig.colMuted : PraxeConfig.colDim)
+            // Os inativos recuam pelo ALFA DA COR, não por `opacity`.
+            //
+            // A tentação era `opacity: isActive ? 1 : 0.45`, e ela quebra:
+            // este mesmo retângulo já usa `opacity` para a animação de
+            // ENTRADA (nasce em 0 e sobe no Component.onCompleted, lá
+            // embaixo). Dois interceptadores na mesma propriedade não se
+            // somam — o QML avisa "another interceptor... unsupported" e
+            // ignora um deles, então ou a entrada ou o recuo deixaria de
+            // funcionar, sem ficar claro qual.
+            //
+            // Pelo alfa não há conflito: é a cor, que já tem o seu próprio
+            // Behavior logo abaixo, e as duas coisas convivem.
+            color: {
+                if (isActive) return PraxeConfig.colAccent
+                const c = hasWindows ? PraxeConfig.colMuted : PraxeConfig.colDim
+                return Qt.rgba(c.r, c.g, c.b, hasWindows ? 0.85 : 0.45)
+            }
 
+            // Mesmo tempo da cápsula que os contém. Ver Theme.animForma.
             Behavior on Layout.preferredWidth {
-                NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: Theme.animForma; easing.type: Easing.OutCubic }
             }
             Behavior on Layout.preferredHeight {
-                NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: Theme.animForma; easing.type: Easing.OutCubic }
             }
-            Behavior on color { ColorAnimation { duration: 280 } }
+            Behavior on color { ColorAnimation { duration: Theme.animForma } }
 
             // ── O número da área ────────────────────────────────
             //
@@ -205,7 +252,7 @@ GridLayout {
 
                 // Some junto com a pill fechando. Sem o `visible` ele
                 // continuaria compondo mesmo a zero, e são vários pontos.
-                opacity: dot.isActive ? 1 : 0
+                opacity: (dot.isActive && !dot.naBarra) ? 1 : 0
                 visible: opacity > 0
                 Behavior on opacity { NumberAnimation { duration: 180 } }
             }
@@ -247,12 +294,25 @@ GridLayout {
             //
             // Valor literal e não binding: nada mais escreve nestes dois,
             // então não há binding a ser quebrado pela atribuição.
+            // SEM overshoot, e é a metade do conserto do "shaky".
+            //
+            // Era `Easing.OutBack`, que por definição passa do alvo e volta.
+            // Num ponto que nasce uma vez isso é charme; aqui não é: o
+            // Hyprland DESTRÓI área vazia, então trocar de área destrói e
+            // recria pontos o tempo todo, e cada um renascia quicando. A
+            // fileira inteira parecia gelatina a cada troca.
+            //
+            // Coisa sólida não quica ao aparecer. Cresce e para.
+            //
+            // E a escala parte de 0.8, não de 0.6: um salto menor é menos
+            // movimento para o olho registrar, e o que se quer comunicar é
+            // "surgiu agora", não "olhe para mim".
             opacity: 0
-            scale: 0.6
+            scale: 0.8
             Component.onCompleted: { opacity = 1; scale = 1 }
-            Behavior on opacity { NumberAnimation { duration: 200 } }
+            Behavior on opacity { NumberAnimation { duration: Theme.animForma } }
             Behavior on scale {
-                NumberAnimation { duration: 260; easing.type: Easing.OutBack }
+                NumberAnimation { duration: Theme.animForma; easing.type: Easing.OutCubic }
             }
 
             // Cursor no HoverHandler, não no MouseArea — ver a nota no

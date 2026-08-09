@@ -92,6 +92,20 @@ Singleton {
     readonly property int   groupGap:    Math.round(16 * scale)
     readonly property int   itemGap:     Math.round(7 * scale)
 
+    // ── Tempos ─────────────────────────────────────────────────
+    //
+    // Aqui porque estavam em DOIS lugares e divergiram: a cápsula animava
+    // forma em 200ms (shell.qml) e os pontos de área em 300ms
+    // (Workspaces.qml). Como os pontos vivem DENTRO da cápsula, por 100ms
+    // o conteúdo ainda se movia numa cápsula que já tinha parado — e a
+    // fileira, sendo centralizada, escorregava de lado nesse intervalo.
+    // Era parte do "shaky" ao trocar de área.
+    //
+    // Peça aninhada tem de assentar JUNTO com a que a contém, senão são
+    // dois movimentos onde o olho espera um.
+    readonly property int   animForma:   200
+    readonly property int   animCor:     150
+
     readonly property string fontFamily:     p.fontFamily ?? "JetBrainsMono Nerd Font"
     readonly property string nerdFontFamily: fontFamily
     readonly property int    fontSize:       Math.round((p.fontSize ?? 12) * scale)
