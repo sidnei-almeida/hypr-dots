@@ -300,7 +300,11 @@ NAME="{nome}"
 """)
     for n in ["BG","BG_ALT","FG","MUTED","DIM","ACCENT","ACCENT2","OK","WARN","ERR"]:
         f.write(f"{n}={p[n]}\n")
-    f.write(f"\nPASTAS={pastas}\nWALLPAPER=\"{img}\"\n")
+    # WALLPAPER é o NOME do arquivo, não o caminho: o rice-theme resolve
+    # como "<pasta de imagens>/Wallpapers/$WALLPAPER". Gravar caminho
+    # absoluto aqui montava ".../Wallpapers//home/voce/...", que não existe
+    # — e aí o tema simplesmente não trocava o papel, em silêncio.
+    f.write(f"\nPASTAS={pastas}\nWALLPAPER={os.path.basename(img)}\n")
 
 print(f"\n  \033[32m✓\033[0m tema '{sl}' gravado em themes/{sl}.sh")
 print(f"  \033[2maplicar:\033[0m rice-theme set {sl}\n")

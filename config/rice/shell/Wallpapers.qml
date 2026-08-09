@@ -146,10 +146,29 @@ Item {
             // Reaplicar é obrigatório nos dois casos: o caminho do papel
             // fica gravado dentro do hyprlock.conf, e sem isso a tela de
             // bloqueio continuaria mostrando a imagem antiga.
+            // ── Com tema automático ──────────────────────────
+            //
+            // O rice-auto grava um tema do usuário derivado DESTA imagem e
+            // o aplica. Como o tema criado já declara este papel, aplicá-lo
+            // não desfaz a escolha.
             (PraxeConfig.autoTema
-              ? "\"$HOME/.local/bin/rice-auto\" --aplicar \"$1\" >/dev/null 2>&1 || "
+              ? "\"$HOME/.local/bin/rice-auto\" --aplicar \"$1\" >/dev/null 2>&1 && exit 0; "
               : "") +
-            "\"$HOME/.local/bin/rice-theme\" set " +
+
+            // ── Sem tema automático ─────────────────────────────
+            //
+            // `RICE_SEM_PAPEL=1` é o que faz a troca de papel FUNCIONAR.
+            //
+            // Reaplicar o tema é obrigatório: o caminho do papel fica
+            // gravado dentro do hyprlock.conf, e sem isso a tela de bloqueio
+            // continuaria com a imagem antiga. Só que o rice-theme, ao ser
+            // reaplicado, reescrevia o hyprpaper.conf com o papel DO TEMA —
+            // e a imagem recém-escolhida voltava para a anterior um quadro
+            // depois, sem mensagem nenhuma. Era impossível trocar de papel.
+            //
+            // A variável faz aquela chamada pular só o bloco do papel de
+            // parede. Tudo o mais é regerado normalmente.
+            "RICE_SEM_PAPEL=1 \"$HOME/.local/bin/rice-theme\" set " +
             "\"$(\"$HOME/.local/bin/rice-theme\" current)\" >/dev/null 2>&1",
             "_", caminho]
         aplicador.running = true
@@ -216,6 +235,95 @@ Item {
             color: PraxeConfig.colDim
             opacity: 0.5
         }
+
+        // ── Criar tema a partir do papel ────────────────────
+        //
+        // As duas coisas são SEPARADAS, e este interruptor é o que diz
+        // qual delas o clique numa imagem vai fazer:
+        //
+        //   desligado → troca só o papel de parede. O tema em vigor fica.
+        //   ligado    → deriva a paleta DESTA imagem, cria um tema do
+        //               usuário e o aplica.
+        //
+        // Fica aqui, e não no painel de aparência, porque a decisão é
+        // sobre o que o PRÓXIMO clique faz — precisa estar à vista no
+        // momento da escolha, senão vira surpresa. O estado mora no
+        // pill.json e sobrevive ao fechamento do painel.
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: linhaAuto.implicitHeight
+
+            RowLayout {
+                id: linhaAuto
+                anchors.left: parent.left
+                anchors.right: parent.right
+                spacing: Math.round(9 * Theme.scale)
+
+                // Interruptor: trilho com um botão que corre de um lado ao
+                // outro. Redondo e pequeno de propósito — não deve competir
+                // com as miniaturas, que são o assunto desta tela.
+                Rectangle {
+                    id: trilho
+                    Layout.alignment: Qt.AlignVCenter
+                    implicitWidth: Math.round(34 * Theme.scale)
+                    implicitHeight: Math.round(18 * Theme.scale)
+                    radius: height / 2
+                    color: PraxeConfig.autoTema ? PraxeConfig.colAccent : PraxeConfig.colDim
+                    opacity: PraxeConfig.autoTema ? 0.95 : 0.55
+                    Behavior on color   { ColorAnimation  { duration: 160 } }
+                    Behavior on opacity { NumberAnimation { duration: 160 } }
+
+                    Rectangle {
+                        width: Math.round(13 * Theme.scale)
+                        height: width
+                        radius: width / 2
+                        color: PraxeConfig.colBgPuro
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: PraxeConfig.autoTema
+                           ? parent.width - width - Math.round(2.5 * Theme.scale)
+                           : Math.round(2.5 * Theme.scale)
+                        // Mola curta: o botão precisa CHEGAR junto com o
+                        // dedo, não depois dele.
+                        Behavior on x {
+                            NumberAnimation { duration: 180; easing.type: Easing.OutBack }
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 0
+
+                    Text {
+                        text: Idioma.t("wall.autotheme")
+                        color: PraxeConfig.colFg
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSize - 1
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: PraxeConfig.autoTema ? Idioma.t("wall.autotheme.on")
+                                                   : Idioma.t("wall.autotheme.off")
+                        color: PraxeConfig.colMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSize - 3
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
+            // A área de clique cobre a linha inteira, não só o interruptor:
+            // alvo de 34px é pequeno demais para um alvo de mouse, e o
+            // rótulo ao lado já parece parte do mesmo controle.
+            HoverHandler { cursorShape: Qt.PointingHandCursor }
+            TapHandler {
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+                onTapped: chaveAuto.exec([PraxeConfig.bin + "rice-pill", "set",
+                                          "autoTema", PraxeConfig.autoTema ? "false" : "true"])
+            }
+        }
+
+        Process { id: chaveAuto }
 
         // ── Aviso de pasta vazia ────────────────────────────
         Text {

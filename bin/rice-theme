@@ -83,9 +83,25 @@ apply() {
   # Mesmo escape dos ícones, pelo mesmo motivo: com `papelFixo: true` no
   # pill.json o tema não encosta na imagem. Sem isso, quem escolhesse um
   # papel à mão o perderia na próxima troca de tema, sem entender por quê.
-  local PAPEL_FIXO=false
-  [[ -f $RICE/pill.json ]] && command -v jq >/dev/null 2>&1 \
-    && PAPEL_FIXO=$(jq -r '.papelFixo // false' "$RICE/pill.json")
+  # `RICE_SEM_PAPEL=1` no ambiente força o mesmo efeito do papelFixo, só
+  # que para UMA chamada.
+  #
+  # Existe por causa do seletor de papel de parede. Ele precisa reaplicar o
+  # tema depois de trocar a imagem — o caminho do papel fica gravado dentro
+  # do hyprlock.conf, e sem reaplicar a tela de bloqueio mostraria a imagem
+  # antiga. Só que a reaplicação passava por AQUI e devolvia o papel do
+  # tema: escolher um papel novo se desfazia sozinho, um quadro depois, sem
+  # mensagem nenhuma.
+  #
+  # Ligar `papelFixo` permanentemente não serve: aí trocar de TEMA deixaria
+  # de trocar o papel, que é justamente o que se espera de um tema. O que
+  # se quer é "reaplique tudo, menos a imagem", e só nesta chamada.
+  local PAPEL_FIXO=${RICE_SEM_PAPEL:+true}
+  PAPEL_FIXO=${PAPEL_FIXO:-false}
+  if [[ $PAPEL_FIXO != true ]]; then
+    [[ -f $RICE/pill.json ]] && command -v jq >/dev/null 2>&1 \
+      && PAPEL_FIXO=$(jq -r '.papelFixo // false' "$RICE/pill.json")
+  fi
 
   if [[ -n ${WALLPAPER:-} && $PAPEL_FIXO != true ]]; then
     local _wp="$(rice_pasta PICTURES Pictures)/Wallpapers/$WALLPAPER"
