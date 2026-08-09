@@ -29,3 +29,10 @@
 nodejs
 npm
 typescript
+
+# O rice-auto deriva a paleta de uma imagem em OKLab, e faz isso em Python
+# — as duas linhas abaixo são a única razão. Estavam instaladas como
+# DEPENDÊNCIA de outro pacote, exatamente como o nodejs: numa máquina nova
+# o gerador de temas quebraria com ImportError e nada diria por quê.
+python-numpy
+python-pillow
