@@ -68,7 +68,12 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Math.round(16 * Theme.scale)
-        spacing: Math.round(14 * Theme.scale)
+        // Ritmo mais apertado, mesma ideia aplicada na cápsula: o painel
+        // ganha ar quando as coisas que pertencem uma à outra ficam
+        // próximas, não quando tudo fica igualmente distante. 14 uniformes
+        // separavam mídia de volume tanto quanto separavam o ícone do seu
+        // próprio controle.
+        spacing: Math.round(11 * Theme.scale)
 
         // ── Mídia ────────────────────────────────────────────
         RowLayout {
@@ -285,13 +290,13 @@ Item {
         // ── Volume ───────────────────────────────────────────
         RowLayout {
             Layout.fillWidth: true
-            spacing: Math.round(12 * Theme.scale)
+            spacing: Math.round(10 * Theme.scale)
 
             Text {
                 text: root.audioPronto && root.sink.audio.muted ? "󰝟" : "󰕾"
                 color: PraxeConfig.colMuted
                 font.family: Theme.nerdFontFamily
-                font.pixelSize: Math.round(15 * Theme.scale)
+                font.pixelSize: Math.round(14 * Theme.scale)
 
                 MouseArea {
                     anchors.fill: parent
@@ -354,7 +359,7 @@ Item {
         // separa as duas coisas.
         RowLayout {
             Layout.fillWidth: true
-            spacing: Math.round(12 * Theme.scale)
+            spacing: Math.round(10 * Theme.scale)
             visible: root.brilhoDisponivel
 
             Text {
@@ -405,20 +410,32 @@ Item {
                 property var aoClicar: null
 
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.round(30 * Theme.scale)
+                Layout.preferredHeight: Math.round(28 * Theme.scale)
                 radius: height / 2
-                color: area.containsMouse ? Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g, PraxeConfig.colFg.b, 0.08) : "transparent"
-                border.width: 1
-                border.color: PraxeConfig.colDim
-                Behavior on color { ColorAnimation { duration: 120 } }
+
+                // PREENCHIMENTO em vez de CONTORNO, e é a mesma decisão que
+                // tirou os separadores da cápsula: linha desenhada é a
+                // solução mais barata e a mais barulhenta.
+                //
+                // Eram cinco contornos de 1px em DIM, permanentes, lado a
+                // lado — cinco retângulos vazios competindo com os glifos
+                // que eles deveriam emoldurar. Um preenchimento fraco dá o
+                // mesmo recorte de área clicável sem desenhar nada.
+                //
+                // O hover sobe o preenchimento em vez de acender a borda:
+                // muda a MESMA propriedade, então o botão responde como uma
+                // superfície e não como um contorno que pisca.
+                color: Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
+                               PraxeConfig.colFg.b, area.containsMouse ? 0.12 : 0.05)
+                Behavior on color { ColorAnimation { duration: Theme.animCor } }
 
                 Text {
                     anchors.centerIn: parent
                     text: acao.glifo
                     color: area.containsMouse ? PraxeConfig.colAccent : PraxeConfig.colMuted
                     font.family: Theme.nerdFontFamily
-                    font.pixelSize: Math.round(15 * Theme.scale)
-                    Behavior on color { ColorAnimation { duration: 120 } }
+                    font.pixelSize: Math.round(14 * Theme.scale)
+                    Behavior on color { ColorAnimation { duration: Theme.animCor } }
                 }
 
                 // `execDetached` e NÃO um `Process` com `running = true`.

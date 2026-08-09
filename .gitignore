@@ -18,6 +18,12 @@ config/hypr/hyprpaper.conf
 config/hypr/*.novo
 config/kitty/colors.conf
 
+# `theme.json` é a paleta que a BARRA relê a quente, escrita pelo rice-theme
+# a cada troca de tema. Escapou do ignore original e estava versionado: todo
+# `rice-theme set` sujava o diff, e um `git pull` podia trazer a paleta de
+# outra máquina para a barra por cima da que está em uso.
+config/rice/theme.json
+
 # ── Estado, não configuração ────────────────────────────────────
 #
 # `current` guarda o tema em uso NESTA máquina. É estado local: se fosse
