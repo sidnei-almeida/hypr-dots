@@ -123,8 +123,10 @@ ShellRoot {
         // quando a barra era o elemento principal da tela. Para algo que
         // abre e fecha o tempo todo com o mouse, isso é lento: o cursor
         // chega no destino antes da forma.
-        readonly property int animForma: 200
-        readonly property int animCor: 150
+        // Do Theme, para não divergir do que as peças de dentro usam —
+        // ver a nota longa lá.
+        readonly property int animForma: Theme.animForma
+        readonly property int animCor: Theme.animCor
         readonly property bool atTop: PraxeConfig.atTop
         readonly property bool vertical: PraxeConfig.vertical
 
@@ -602,13 +604,30 @@ ShellRoot {
                 easing.type: Easing.OutCubic
             }
 
-            component Sep: Rectangle {
+            // Fronteira de grupo: RESPIRO, não linha.
+            //
+            // Era um filete de 1px em DIM entre cada grupo de módulos. Uma
+            // linha divisória é a solução mais barata para "separar", e a
+            // mais barulhenta: são seis traços permanentes numa peça que
+            // existe para desaparecer, e cada um deles é uma coisa a mais
+            // que o olho registra sem que diga nada.
+            //
+            // Agrupamento limpo se faz por PROXIMIDADE. O espaçamento base
+            // caiu de 16 para 7 (itemGap) e a fronteira passou a valer 16
+            // (groupGap): dentro do grupo os módulos ficam colados, entre
+            // grupos abre um vão de ~30px. A leitura é a mesma que a linha
+            // dava, sem nada desenhado — e a cápsula ainda encurta, porque
+            // seis traços de 1px viraram vão só onde há fronteira de fato.
+            //
+            // Os pontos de chamada continuam iguais: eles já sabiam onde
+            // cada grupo termina, que é a parte difícil. Só o `bar.isPill`
+            // saiu, para o modo barra ganhar o mesmo ritmo — ele antes não
+            // tinha separação nenhuma entre os grupos da direita.
+            component Sep: Item {
                 Layout.alignment: bar.vertical ? Qt.AlignHCenter : Qt.AlignVCenter
-                Layout.preferredWidth: 1
-                Layout.preferredHeight: Math.round(12 * Theme.scale)
-                color: PraxeConfig.colDim
-                opacity: 0.6
-                visible: bar.isPill && !bar.compacto
+                Layout.preferredWidth: bar.vertical ? 1 : Theme.groupGap
+                Layout.preferredHeight: bar.vertical ? Theme.groupGap : 1
+                visible: !bar.compacto
             }
 
             // O Spacer era o que distribuía os módulos no modo barra: dois
@@ -645,8 +664,14 @@ GridLayout {
                 flow: bar.vertical ? GridLayout.TopToBottom : GridLayout.LeftToRight
                 columns: bar.vertical ? 1 : -1
                 rows:    bar.vertical ? -1 : 1
-                rowSpacing: Theme.groupGap
-                columnSpacing: Theme.groupGap
+                // Base APERTADA, de propósito: quem separa é o `Sep` acima,
+                // e só onde há fronteira de grupo. Com 16 em tudo, módulos
+                // do mesmo grupo ficavam tão distantes quanto módulos de
+                // grupos diferentes — e aí a única coisa que agrupava era a
+                // linha desenhada, o que explica por que ela parecia
+                // necessária.
+                rowSpacing: Theme.itemGap
+                columnSpacing: Theme.itemGap
 
                 opacity: (bar.expandido || bar.emOsd || bar.emBalao || bar.colapsada) ? 0 : 1
                 visible: opacity > 0
