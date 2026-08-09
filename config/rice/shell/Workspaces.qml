@@ -154,6 +154,28 @@ GridLayout {
             // isso 14 e não 12.
             readonly property bool naBarra: PraxeConfig.layout === "bar" && !PraxeConfig.vertical
 
+            // ── QUANDO O DÍGITO GANHA O ESPAÇO DELE ─────────────
+            //
+            // Só quando a POSIÇÃO MENTE, e ela mente num caso só.
+            //
+            // A régua é contígua de 1 até a maior área em uso dentro do
+            // teto: o ponto na posição N é a área N, sempre. O dígito
+            // resolvia a ambiguidade do desenho ANTIGO, em que a fileira
+            // pulava números e ir para a 6, 8 ou 12 dava a mesma figura.
+            // Com a régua contígua ele passou a repetir, dentro de uma
+            // pill que custa o DOBRO da altura dos pontos, o que a posição
+            // já dizia de graça. Era esse o caroço no meio da linha.
+            //
+            // Acima do teto a coisa muda: a área 12 aparece avulsa depois
+            // do traço de salto, e ali a posição realmente não diz o
+            // número. Aí o dígito é a única informação disponível e vale a
+            // altura que cobra.
+            //
+            // Só na ATIVA: saber que existe uma área longínqua importa
+            // menos do que saber que é nela que você está, e numerar todas
+            // as avulsas traria de volta a fileira de dígitos.
+            readonly property bool comNumero: isActive && wsId > root.teto
+
             // ── A ALTURA É A MESMA PARA TODOS. ──────────────────
             //
             // Era isto que fazia a fileira parecer grosseira: a área ativa
@@ -181,24 +203,29 @@ GridLayout {
             Layout.preferredWidth: PraxeConfig.vertical
                 ? Math.round((isActive ? 18 : 7) * Theme.scale)
                 : (isActive
-                     ? (naBarra
-                          // Sem dígito: comprimento fixo, três vezes o ponto.
-                          ? Math.round(20 * Theme.scale)
-                          // Com dígito: o piso é de FORMA, para a pill de um
+                     ? (comNumero
+                          // Com dígito: piso de FORMA, para a pill de um
                           // dígito não virar círculo. Dois dígitos passam
                           // disso sozinhos.
-                          : Math.max(Math.round(22 * Theme.scale),
-                                     Math.round(numero.implicitWidth + 11 * Theme.scale)))
+                          ? Math.max(Math.round(22 * Theme.scale),
+                                     Math.round(numero.implicitWidth + 11 * Theme.scale))
+                          // Sem dígito: comprimento fixo, ~3x o ponto. É o
+                          // indicador de página do iOS — mais LONGO, e a
+                          // linha continua reta.
+                          : Math.round((naBarra ? 20 : 22) * Theme.scale))
                      : Math.round((naBarra ? 6 : 7) * Theme.scale))
             Layout.preferredHeight: PraxeConfig.vertical
                 ? (isActive ? Math.max(Math.round(22 * Theme.scale),
                                        Math.round(numero.implicitHeight + 8 * Theme.scale))
                             : Math.round(7 * Theme.scale))
-                : (naBarra
-                     // Barra: MESMA altura para ativo e inativo. A linha
-                     // permanece reta de ponta a ponta.
-                     ? Math.round(6 * Theme.scale)
-                     : Math.round((isActive ? 15 : 7) * Theme.scale))
+                // MESMA ALTURA para ativo e inativo, nos dois modos. A
+                // fileira é uma linha reta de ponta a ponta, e a ativa se lê
+                // pelo comprimento e pela cor — informação de sobra. A
+                // exceção é a pill que carrega dígito, que precisa de corpo
+                // para o número caber; e ela só aparece acima do teto, onde
+                // o traço de salto já quebrou a linha de qualquer forma.
+                : (comNumero ? Math.round(15 * Theme.scale)
+                             : Math.round((naBarra ? 6 : 7) * Theme.scale))
             radius: height / 2
 
             // Fantasma fica em DIM, a mesma cor da área existente e vazia:
@@ -252,7 +279,7 @@ GridLayout {
 
                 // Some junto com a pill fechando. Sem o `visible` ele
                 // continuaria compondo mesmo a zero, e são vários pontos.
-                opacity: (dot.isActive && !dot.naBarra) ? 1 : 0
+                opacity: dot.comNumero ? 1 : 0
                 visible: opacity > 0
                 Behavior on opacity { NumberAnimation { duration: 180 } }
             }
