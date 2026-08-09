@@ -312,6 +312,20 @@ Item {
     readonly property var papeisBorda: ["accent", "accent2", "fg", "muted", "dim",
                                         "bg_alt", "ok", "warn", "err"]
 
+    // Slug em minúsculas (como vai para o pill.json) → chave da paleta.
+    function chaveDoPapel(slug) {
+        return (slug || "accent").toUpperCase()
+    }
+    function corDoPapel(slug) {
+        const k = chaveDoPapel(slug)
+        return paleta[k] !== undefined ? Qt.color("#" + paleta[k]) : PraxeConfig.colDim
+    }
+    function nomeDoPapel(slug) {
+        const k = chaveDoPapel(slug)
+        for (const p of papeis) if (p.k === k) return p.t
+        return slug
+    }
+
     function papelSeguinte(atual, passo) {
         const l = papeisBorda
         const i = Math.max(0, l.indexOf(atual || l[0]))
@@ -627,6 +641,62 @@ Item {
             cursorShape: il.instalado ? Qt.ArrowCursor : Qt.PointingHandCursor
             onClicked: if (!il.instalado) il.instalar()
         }
+    }
+
+    // Seletor de PAPEL da paleta: ‹ ■ Nome ›
+    //
+    // Nasceu porque o `Seletor` genérico não servia aqui, por dois motivos.
+    //
+    // 1. Ele mostrava o slug cru — "accent2", "bg_alt". Texto técnico, em
+    //    minúsculas e em inglês, no meio de um painel traduzido.
+    //
+    // 2. Ele tem `Layout.fillWidth: true`, e o rótulo do `Linha` também.
+    //    Os dois disputavam a largura e cada um ficava com metade da linha,
+    //    enquanto as linhas de `Passo` (que não estica) alinhavam de outro
+    //    jeito. Era isso que deixava a seção torta: duas famílias de linha
+    //    com dois alinhamentos diferentes, empilhadas.
+    //
+    // Aqui a largura é FIXA, igual para todas as linhas de cor, então o
+    // rótulo à esquerda termina no mesmo ponto em toda a seção — e no mesmo
+    // ponto das linhas de contador.
+    //
+    // E mostra a COR, que é o assunto. Escolher cor lendo o nome dela é
+    // trabalho a mais para quem já está olhando a tela.
+    component SeletorPapel: RowLayout {
+        id: sp
+        property string papel: "accent"
+        signal anterior
+        signal proximo
+
+        spacing: Math.round(4 * Theme.scale)
+        Layout.preferredWidth: Math.round(146 * Theme.scale)
+
+        BotaoRedondo { glifo: "󰅁"; onAcionado: sp.anterior() }
+
+        Rectangle {
+            Layout.alignment: Qt.AlignVCenter
+            implicitWidth: Math.round(14 * Theme.scale)
+            implicitHeight: implicitWidth
+            radius: Math.round(4 * Theme.scale)
+            color: root.corDoPapel(sp.papel)
+            border.width: 1
+            // Contorno branco a 12%: sem ele um papel escuro (BG_ALT, DIM)
+            // some no fundo do painel e a amostra não mostra nada.
+            border.color: Qt.rgba(1, 1, 1, 0.12)
+            Behavior on color { ColorAnimation { duration: 150 } }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            text: root.nomeDoPapel(sp.papel)
+            color: PraxeConfig.colFg
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize - 2
+        }
+
+        BotaoRedondo { glifo: "󰅂"; onAcionado: sp.proximo() }
     }
 
     // Linha de ajuste: rótulo à esquerda, controle à direita.
@@ -1646,12 +1716,39 @@ Item {
                         }
                     }
 
+                    Separador {}
+
+                    // ── Cor da borda ─────────────────────────────
+                    //
+                    // Subseção própria, e não mais quatro linhas soltas
+                    // depois dos contadores. São assuntos diferentes: acima
+                    // se ajusta GEOMETRIA (espessura, raio, espaço), aqui se
+                    // escolhe COR. Misturados, o olho não achava onde uma
+                    // coisa terminava e a outra começava.
+                    Titulo { text: Idioma.t("win.border.color") }
                     Nota { text: Idioma.t("win.border.desc") }
+
+                    // Prévia do que se está montando.
+                    //
+                    // O gradiente da borda ativa é um efeito que só existe
+                    // na janela focada — para vê-lo era preciso fechar o
+                    // painel, olhar, reabrir e ajustar. Aqui ele está do
+                    // lado dos controles que o produzem.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(16 * Theme.scale)
+                        radius: Math.round(5 * Theme.scale)
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0.0; color: root.corDoPapel(PraxeConfig.bordaAtiva1 || "accent") }
+                            GradientStop { position: 1.0; color: root.corDoPapel(PraxeConfig.bordaAtiva2 || "accent2") }
+                        }
+                    }
 
                     Linha {
                         rotulo: Idioma.t("win.border.c1")
-                        Seletor {
-                            valor: PraxeConfig.bordaAtiva1 || "accent"
+                        SeletorPapel {
+                            papel: PraxeConfig.bordaAtiva1 || "accent"
                             onAnterior: root.ajusteJanela("bordaAtiva1", root.papelSeguinte(PraxeConfig.bordaAtiva1 || "accent", -1))
                             onProximo:  root.ajusteJanela("bordaAtiva1", root.papelSeguinte(PraxeConfig.bordaAtiva1 || "accent", 1))
                         }
@@ -1659,8 +1756,8 @@ Item {
 
                     Linha {
                         rotulo: Idioma.t("win.border.c2")
-                        Seletor {
-                            valor: PraxeConfig.bordaAtiva2 || "accent2"
+                        SeletorPapel {
+                            papel: PraxeConfig.bordaAtiva2 || "accent2"
                             onAnterior: root.ajusteJanela("bordaAtiva2", root.papelSeguinte(PraxeConfig.bordaAtiva2 || "accent2", -1))
                             onProximo:  root.ajusteJanela("bordaAtiva2", root.papelSeguinte(PraxeConfig.bordaAtiva2 || "accent2", 1))
                         }
@@ -1670,8 +1767,6 @@ Item {
                         rotulo: Idioma.t("win.border.angle")
                         Passo {
                             valor: PraxeConfig.bordaAngulo
-                            // Passos de 15°: o suficiente para escolher
-                            // direção sem virar um seletor de grau a grau.
                             onMenos: root.ajusteJanela("bordaAngulo", (PraxeConfig.bordaAngulo + 345) % 360)
                             onMais:  root.ajusteJanela("bordaAngulo", (PraxeConfig.bordaAngulo + 15) % 360)
                         }
@@ -1679,8 +1774,8 @@ Item {
 
                     Linha {
                         rotulo: Idioma.t("win.border.off")
-                        Seletor {
-                            valor: PraxeConfig.bordaInativa || "dim"
+                        SeletorPapel {
+                            papel: PraxeConfig.bordaInativa || "dim"
                             onAnterior: root.ajusteJanela("bordaInativa", root.papelSeguinte(PraxeConfig.bordaInativa || "dim", -1))
                             onProximo:  root.ajusteJanela("bordaInativa", root.papelSeguinte(PraxeConfig.bordaInativa || "dim", 1))
                         }
