@@ -200,10 +200,17 @@ rice-auto --mostrar <imagem>       # só mostra a paleta, não grava
 rice-auto --aplicar <imagem>       # gera e passa a usar
 ```
 
-Ligando `"autoTema": true` no `pill.json`, escolher um papel de parede
-passa a derivar a paleta dele automaticamente. **Desligado por padrão**:
-ligado, trocar a imagem *substitui* o tema em vigor, e quem só queria
-mudar o papel perderia a paleta que ajustou à mão.
+No seletor de papel de parede há um interruptor que decide o que o
+próximo clique numa imagem faz:
+
+| interruptor | efeito |
+|---|---|
+| **desligado** (padrão) | troca só o papel. O tema em vigor fica intacto |
+| **ligado** | deriva a paleta da imagem, cria um tema do usuário e aplica |
+
+Ele fica ali, e não no painel de aparência, porque a decisão é sobre o que
+o *próximo clique* faz — precisa estar à vista no momento da escolha. O
+estado persiste no `pill.json` (`autoTema`).
 
 #### Por que isto não fica feio
 
