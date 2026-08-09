@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+# ┌──────────────────────────────────────────────────────────────┐
+# │  Deriva um tema do PraXe a partir de uma IMAGEM.               │
+# └──────────────────────────────────────────────────────────────┘
+#
+#   rice-auto                       usa o papel de parede em vigor
+#   rice-auto <imagem>              usa a imagem dada
+#   rice-auto --mostrar [imagem]    só mostra a paleta, não grava nada
+#   rice-auto --aplicar [imagem]    grava E passa a usar
+#   rice-auto --nome "Meu tema" ... nome de exibição (padrão: nome do arquivo)
+#
+# ── A TESE ──────────────────────────────────────────────────────
+#
+# Extrair cor de uma foto é a parte fácil. O que faz auto-theming ficar
+# feio é deixar o CONTRASTE ao acaso: a imagem decide tudo, e metade das
+# imagens produz texto ilegível. Fica lindo na captura e inutilizável no
+# uso.
+#
+# Aqui as responsabilidades são separadas:
+#
+#   a imagem decide  →  MATIZ e CROMA   (qual família de cor, quão viva)
+#   a tabela decide  →  LUMINOSIDADE    (fixa, por papel)
+#
+# A luminosidade é fixada em OKLab, que é perceptualmente uniforme — L
+# igual significa claridade igual, o que não vale em HSL nem em HSV. Com
+# BG em L=0.16 e FG em L=0.92, o contraste dá ~15:1 com QUALQUER imagem
+# do mundo. A foto não vota nisso.
+#
+# ── DUAS REGRAS QUE NÃO SE NEGOCIAM ─────────────────────────────
+#
+# 1. OK, WARN e ERR mantêm o MATIZ semântico (verde, âmbar, vermelho) e
+#    pegam da imagem só o croma. Verde que vira azul deixa de dizer "ok",
+#    e aí a paleta ficou bonita ao custo de mentir.
+#
+# 2. ACCENT2 fica a 150° do ACCENT. Longe o bastante para os dois não se
+#    confundirem, sem cair no complementar exato (180°), que vibra quando
+#    os dois encostam — e eles encostam, no gradiente da borda ativa.
+
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+RICE="$HOME/.config/rice"
+THEMES="$RICE/themes"
+PAPIRUS="/usr/share/icons/Papirus-Dark/64x64/places"
+
+verde=$'\e[32m'; verm=$'\e[31m'; ama=$'\e[33m'; dim=$'\e[2m'; zero=$'\e[0m'
+erro() { printf '%s  ✗%s %s\n' "$verm" "$zero" "$1" >&2; exit 1; }
+
+MODO=gravar; NOME=""; IMG=""
+while (( $# )); do
+    case "$1" in
+        --mostrar) MODO=mostrar ;;
+        --aplicar) MODO=aplicar ;;
+        --nome)    NOME="${2:-}"; shift ;;
+        -h|--help) sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -*)        erro "argumento desconhecido: $1" ;;
+        *)         IMG="$1" ;;
+    esac
+    shift
+done
+
+# Sem imagem: o papel de parede em vigor. É o caso de uso principal —
+# "gere um tema para o que já está na minha tela".
+if [[ -z $IMG ]]; then
+    IMG=$(grep -m1 '^wallpaper' "$HOME/.config/hypr/hyprpaper.conf" 2>/dev/null | sed 's/^wallpaper *= *,//')
+fi
+[[ -f ${IMG:-} ]] || erro "não achei a imagem: ${IMG:-(nenhuma)}"
+
+python3 - "$IMG" "$MODO" "$NOME" "$PAPIRUS" "$THEMES" <<'PYTHON'
+import sys, os, math, re, glob, unicodedata
+import numpy as np
+from PIL import Image
+
+img, modo, nome, papirus, themes = sys.argv[1:6]
+
+# ── OKLab ───────────────────────────────────────────────────────
+# Escolhido em vez de CIELAB por causa do MATIZ: o Lab clássico torce o
+# azul para roxo ao mudar a luminosidade, o que estragaria justamente o
+# passo em que fixamos L e mantemos o matiz da imagem.
+M1 = np.array([[0.4122214708,0.5363325363,0.0514459929],
+               [0.2119034982,0.6806995451,0.1073969566],
+               [0.0883024619,0.2817188376,0.6299787005]])
+M2 = np.array([[0.2104542553,0.7936177850,-0.0040720468],
+               [1.9779984951,-2.4285922050,0.4505937099],
+               [0.0259040371,0.7827717662,-0.8086757660]])
+M1i, M2i = np.linalg.inv(M1), np.linalg.inv(M2)
+
+def srgb_lin(c): return np.where(c<=0.04045, c/12.92, ((c+0.055)/1.055)**2.4)
+def lin_srgb(c): return np.where(c<=0.0031308, c*12.92, 1.055*np.clip(c,0,None)**(1/2.4)-0.055)
+def to_oklab(rgb): return np.cbrt(srgb_lin(rgb) @ M1.T) @ M2.T
+def to_rgb(lab):   return lin_srgb(((lab @ M2i.T)**3) @ M1i.T)
+
+def lch_hex(L, C, h):
+    # Reduz o CROMA até caber no gamut sRGB, em vez de cortar o canal que
+    # estourou. Cortar canal muda o matiz sem avisar — um vermelho vivo
+    # demais vira laranja e ninguém entende por quê.
+    for k in np.linspace(1.0, 0.0, 80):
+        rgb = to_rgb(np.array([[L, C*k*math.cos(h), C*k*math.sin(h)]]))[0]
+        if (rgb >= -1e-4).all() and (rgb <= 1+1e-4).all():
+            return "".join(f"{int(round(min(1,max(0,v))*255)):02x}" for v in rgb)
+    return "000000"
+
+def hex_oklab(s):
+    return to_oklab(np.array([[int(s[i:i+2],16)/255 for i in (0,2,4)]]))[0]
+
+def luminancia(s):
+    c = np.array([int(s[i:i+2],16)/255 for i in (0,2,4)])
+    return float(srgb_lin(c) @ np.array([0.2126,0.7152,0.0722]))
+
+def contraste(a,b):
+    la,lb = luminancia(a), luminancia(b)
+    return (max(la,lb)+0.05)/(min(la,lb)+0.05)
+
+# ── Extração ────────────────────────────────────────────────────
+im = Image.open(img).convert("RGB")
+# 400 e não 240: o acento mora em reflexos pequenos, e reduzir demais
+# a imagem os funde com a vizinhança antes mesmo de a conta começar.
+im.thumbnail((400,400))
+X = (np.asarray(im, dtype=float)/255).reshape(-1,3)
+lab = to_oklab(X)
+
+# k-means com sementes espalhadas na LUMINOSIDADE. Sementes aleatórias
+# colapsam nos tons escuros, que dominam qualquer foto noturna — e a
+# paleta inteira sairia de um único ponto da imagem.
+K = 8
+ordem = np.argsort(lab[:,0])
+C = lab[ordem[np.linspace(0, len(ordem)-1, K).astype(int)]].copy()
+for _ in range(30):
+    d = ((lab[:,None,:]-C[None,:,:])**2).sum(2)
+    a = d.argmin(1)
+    for i in range(K):
+        if (a==i).any(): C[i] = lab[a==i].mean(0)
+peso  = np.array([(a==i).sum() for i in range(K)])/len(lab)
+croma = np.hypot(C[:,1], C[:,2])
+
+# ── DOIS MATIZES, NÃO UM ────────────────────────────────────────
+#
+# O FUNDO e o ACENTO saem de lugares diferentes da imagem, porque é assim
+# que um tema feito à mão é feito. O hotrod.sh deste rice diz, na própria
+# linha: BG é "o preto do pneu, frio — e isso surpreende num tema"
+# quente, e o ACCENT é "ouro do bico, do capacete e dos raios". Fundo frio,
+# acento quente, na MESMA foto. Forçar um matiz só apaga essa tensão, que
+# é justamente o que dá caráter à paleta.
+#
+# Fundo: o aglomerado ESCURO de maior presença. É a massa da imagem.
+escuros = [i for i in range(K) if C[i,0] < 0.45]
+i_bg = max(escuros or range(K), key=lambda i: peso[i])
+h_bg = math.atan2(C[i_bg,2], C[i_bg,1])
+c_bg = float(croma[i_bg])
+
+# Acento: NÃO sai do k-means da imagem inteira, e esta é a correção que
+# mais importa aqui.
+#
+# K-means agrupa por ÁREA, então um reflexo pequeno e vivo — o ouro de um
+# capacete, o vermelho de uma lataria — é sempre absorvido pelo aglomerado
+# grande e apagado ao redor. Foi o que fez o hotrod sair cor de areia: a
+# média venceu o destaque, que é o oposto do que um acento é.
+#
+# A correção é olhar só os pixels VIVOS: recorta-se o quinto superior de
+# croma da imagem e agrupa-se apenas ele. Dentro desse recorte, o maior
+# grupo vence — assim o acento é a cor viva mais PRESENTE, e não um pixel
+# solto de ruído JPEG.
+croma_px = np.hypot(lab[:,1], lab[:,2])
+
+# O CORTE É NO 97º PERCENTIL, e o número tem origem medida.
+#
+# Com corte em p80 o acento do hotrod saía bege, e a razão apareceu ao
+# medir a foto: 46% dela já está no matiz do ouro, e o p80 de croma dessa
+# imagem é 0,061 — ou seja, o corte pegava a parede inteira. O ouro do
+# capacete que o tema feito à mão usou tem croma 0,132, e só o 1% superior
+# da foto chega lá.
+#
+# Acento é destaque, e destaque é sempre a cauda da distribuição, nunca a
+# massa. p97 num quadro de 400px ainda deixa milhares de pixels para
+# agrupar, então não é ruído.
+corte = np.quantile(croma_px, 0.97)
+vivos = lab[(croma_px >= corte) & (lab[:,0] > 0.20) & (lab[:,0] < 0.95)]
+
+if len(vivos) < 50:
+    # Imagem quase acromática (foto preto e branco, neblina). Não há
+    # acento a extrair: usa o matiz do fundo e deixa o croma no piso.
+    h, c_img = h_bg, c_bg
+else:
+    KA = 4
+    ordem_v = np.argsort(np.arctan2(vivos[:,2], vivos[:,1]))
+    CA = vivos[ordem_v[np.linspace(0, len(vivos)-1, KA).astype(int)]].copy()
+    for _ in range(25):
+        d = ((vivos[:,None,:]-CA[None,:,:])**2).sum(2)
+        av = d.argmin(1)
+        for i in range(KA):
+            if (av==i).any(): CA[i] = vivos[av==i].mean(0)
+    peso_v = np.array([(av==i).sum() for i in range(KA)])/len(vivos)
+    croma_v = np.hypot(CA[:,1], CA[:,2])
+    i_ac = max(range(KA), key=lambda i: peso_v[i] * (0.5 + croma_v[i]*4))
+    h = math.atan2(CA[i_ac,2], CA[i_ac,1])
+
+    # O CROMA sai de um percentil alto do aglomerado, não da média dele —
+    # e esta linha é a diferença entre um acento vivo e um bege.
+    #
+    # Média de aglomerado mistura o reflexo vivo com a penumbra em volta,
+    # e penumbra é a maioria em qualquer foto. Medido contra o hotrod.sh,
+    # feito à mão: o matiz da média já batia (81,5° contra 79,6°), mas o
+    # croma dava 0,069 contra os 0,132 do original — exatamente metade.
+    # A cor certa estava no aglomerado; a média é que a diluía.
+    membros = np.hypot(vivos[av==i_ac,1], vivos[av==i_ac,2])
+    c_img = float(np.quantile(membros, 0.85)) if len(membros) else float(croma_v[i_ac])
+
+# Piso e teto no croma: abaixo de 0.05 a imagem é praticamente cinza e o
+# tema sairia sem identidade nenhuma; acima de 0.17 o sRGB não segura nos
+# tons claros e todo o ganho vira recorte de gamut.
+c_base = max(0.055, min(c_img, 0.17))
+
+# ── A tabela ────────────────────────────────────────────────────
+# L fixo por papel — é isto que garante legibilidade com qualquer imagem.
+# O croma cai junto com a importância: fundo quase neutro, acento cheio.
+G = math.radians
+# Os quatro neutros usam o matiz do FUNDO (h_bg), não o do acento. O croma
+# deles é baixíssimo — não é para se ver a cor, é para o cinza não ser um
+# cinza morto de televisão. Com o matiz do acento aqui, o fundo inteiro
+# puxaria para a cor do destaque e a paleta viraria monocromática.
+c_neutro = max(0.03, min(c_bg, 0.10))
+slots = {
+    "BG":      (0.16, c_neutro*0.55, h_bg),
+    "BG_ALT":  (0.24, c_neutro*0.70, h_bg),
+    "DIM":     (0.42, c_neutro*0.85, h_bg),
+    "MUTED":   (0.62, c_neutro*1.00, h_bg),
+    "FG":      (0.92, c_neutro*0.25, h_bg),
+    "ACCENT":  (0.74, c_base*1.00, h),
+    "ACCENT2": (0.70, c_base*0.85, h + G(150)),
+    "OK":      (0.74, max(c_base,0.11), G(145)),
+    "WARN":    (0.80, max(c_base,0.13), G(85)),
+    "ERR":     (0.62, max(c_base,0.14), G(25)),
+}
+p = {n: lch_hex(L,c,hh) for n,(L,c,hh) in slots.items()}
+
+# ── Cor de pasta ────────────────────────────────────────────────
+# Lida dos SVGs do próprio Papirus e escolhida por menor ΔE contra o
+# ACCENT. Ler em vez de cravar uma tabela: se o Papirus ganhar uma cor
+# nova, ela entra sozinha, sem ninguém atualizar lista nenhuma.
+def cor_do_svg(caminho):
+    txt = open(caminho, encoding="utf-8", errors="ignore").read()
+    fills = re.findall(r'fill:#([0-9a-fA-F]{6})', txt)
+    melhor, mc = None, -1
+    for f in fills:
+        L,A,B = hex_oklab(f.lower())
+        c = math.hypot(A,B)
+        # O papel branco da pasta (#e4e4e4, #ffffff) é acromático e cai
+        # fora sozinho por este teste.
+        if c > mc and c > 0.02: melhor, mc = f.lower(), c
+    return melhor
+
+alvo = hex_oklab(p["ACCENT"])
+pastas, melhor_d = "blue", 1e9
+for svg in glob.glob(os.path.join(papirus, "folder-*.svg")):
+    nome_cor = os.path.basename(svg)[7:-4]
+    if "-" in nome_cor: continue          # folder-teal-documents e afins
+    c = cor_do_svg(svg)
+    if not c: continue
+    d = float(np.linalg.norm(hex_oklab(c) - alvo))
+    if d < melhor_d: pastas, melhor_d = nome_cor, d
+
+# ── Saída ───────────────────────────────────────────────────────
+def slug(s):
+    s = unicodedata.normalize("NFKD", s).encode("ascii","ignore").decode()
+    s = re.sub(r'[^a-zA-Z0-9]+','-', s).strip('-').lower()
+    return s or "auto"
+
+base = os.path.splitext(os.path.basename(img))[0]
+nome = nome or base.replace("-"," ").replace("_"," ").title()
+sl   = slug(nome)
+
+cor = lambda hx: f"\033[48;2;{int(hx[0:2],16)};{int(hx[2:4],16)};{int(hx[4:6],16)}m    \033[0m"
+print()
+for n in ["BG","BG_ALT","DIM","MUTED","FG","ACCENT","ACCENT2","OK","WARN","ERR"]:
+    print(f"  {cor(p[n])} {n:8} #{p[n]}")
+print(f"\n  \033[2mpastas\033[0m   {pastas}   \033[2m(ΔE {melhor_d:.3f} do acento)\033[0m")
+cfb = contraste(p['FG'], p['BG'])
+marca = "\033[32m✓\033[0m" if cfb >= 4.5 else "\033[31m✗\033[0m"
+print(f"  \033[2mcontraste\033[0m FG/BG {cfb:.1f}:1 {marca}  ACCENT/BG {contraste(p['ACCENT'],p['BG']):.1f}:1  MUTED/BG {contraste(p['MUTED'],p['BG']):.1f}:1")
+
+if modo == "mostrar":
+    print(f"\n  \033[2mnada gravado — use sem --mostrar para criar o tema '{sl}'\033[0m\n")
+    sys.exit(0)
+
+arq = os.path.join(themes, sl + ".sh")
+with open(arq, "w", encoding="utf-8") as f:
+    f.write(f"""# Gerado por rice-auto a partir de:
+#   {img}
+#
+# A imagem definiu MATIZ e CROMA. A luminosidade de cada papel é fixa, em
+# OKLab, e é por isso que o contraste FG/BG deu {cfb:.1f}:1 — ele daria o
+# mesmo com qualquer outra imagem. Ver a nota longa em ~/.local/bin/rice-auto.
+#
+# Editável à mão, ou pelo rice-cores. Regerar com:
+#   rice-auto --nome "{nome}" "{img}"
+PROPRIO=sim
+NAME="{nome}"
+
+""")
+    for n in ["BG","BG_ALT","FG","MUTED","DIM","ACCENT","ACCENT2","OK","WARN","ERR"]:
+        f.write(f"{n}={p[n]}\n")
+    f.write(f"\nPASTAS={pastas}\nWALLPAPER=\"{img}\"\n")
+
+print(f"\n  \033[32m✓\033[0m tema '{sl}' gravado em themes/{sl}.sh")
+print(f"  \033[2maplicar:\033[0m rice-theme set {sl}\n")
+with open(os.path.join(themes, ".ultimo-auto"), "w") as f:
+    f.write(sl)
+PYTHON
+
+if [[ $MODO == aplicar ]]; then
+    SL=$(cat "$THEMES/.ultimo-auto" 2>/dev/null || true)
+    [[ -n ${SL:-} ]] && rice-theme set "$SL"
+fi

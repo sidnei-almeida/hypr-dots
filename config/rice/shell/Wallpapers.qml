@@ -136,9 +136,19 @@ Item {
             "> \"$HOME/.config/hypr/hyprpaper.conf\"; " +
             "pgrep -x hyprpaper >/dev/null || (setsid -f hyprpaper >/dev/null 2>&1; sleep 1); " +
             "hyprctl hyprpaper wallpaper \",$1\" >/dev/null; " +
-            // O bloqueio usa o papel de fundo, e o caminho fica gravado
-            // dentro do hyprlock.conf. Sem reaplicar o tema, a tela de
+            // ── Tema automático, se ligado ───────────────────
+            //
+            // Com `autoTema` no pill.json, escolher um papel DERIVA a
+            // paleta dele: o rice-auto grava um tema do usuário a partir
+            // da imagem e o aplica. Desligado, o comportamento é o de
+            // sempre — só reaplica o tema em vigor.
+            //
+            // Reaplicar é obrigatório nos dois casos: o caminho do papel
+            // fica gravado dentro do hyprlock.conf, e sem isso a tela de
             // bloqueio continuaria mostrando a imagem antiga.
+            (PraxeConfig.autoTema
+              ? "\"$HOME/.local/bin/rice-auto\" --aplicar \"$1\" >/dev/null 2>&1 || "
+              : "") +
             "\"$HOME/.local/bin/rice-theme\" set " +
             "\"$(\"$HOME/.local/bin/rice-theme\" current)\" >/dev/null 2>&1",
             "_", caminho]

@@ -5,7 +5,7 @@
 **Um rice de Hyprland que se reconstrói inteiro a partir de uma paleta.**
 
 Sete temas, uma barra em Quickshell, tela de bloqueio, dock, lançador e
-trinta e sete utilitários — todos lendo as mesmas dez cores.
+trinta e oito utilitários — todos lendo as mesmas dez cores.
 
 ![Hyprland](https://img.shields.io/badge/Hyprland-0.56-58E1FF?style=flat-square&logo=hyprland&logoColor=white)
 ![Quickshell](https://img.shields.io/badge/Quickshell-QML-41CD52?style=flat-square&logo=qt&logoColor=white)
@@ -131,7 +131,7 @@ hypr-dots/
 │   │   └── assets/
 │   ├── kitty/
 │   └── Code/User/          settings e keybindings do VSCode
-├── bin/                    37 utilitários rice-*
+├── bin/                    38 utilitários rice-*
 ├── wallpapers/             40 imagens
 ├── apps/applications/      atalhos .desktop
 └── packages/               pacman · AUR · dev · extensões do VSCode
@@ -189,8 +189,59 @@ identidade, não omissão.
 rice-theme menu          # escolher pela interface
 rice-theme set nord      # direto
 rice-theme current       # qual está em uso
-rice-cores               # criar um tema a partir de uma imagem
+rice-cores               # clonar e editar cor a cor
 ```
+
+### Tema derivado do papel de parede
+
+```bash
+rice-auto                          # gera a partir do papel em vigor
+rice-auto --mostrar <imagem>       # só mostra a paleta, não grava
+rice-auto --aplicar <imagem>       # gera e passa a usar
+```
+
+Ligando `"autoTema": true` no `pill.json`, escolher um papel de parede
+passa a derivar a paleta dele automaticamente. **Desligado por padrão**:
+ligado, trocar a imagem *substitui* o tema em vigor, e quem só queria
+mudar o papel perderia a paleta que ajustou à mão.
+
+#### Por que isto não fica feio
+
+Extrair cor é a parte fácil. O que estraga auto-theming é deixar o
+**contraste ao acaso** — a imagem decide tudo e metade das fotos produz
+texto ilegível. Aqui as responsabilidades são separadas:
+
+| decide | o quê |
+|---|---|
+| a imagem | **matiz** e **croma** — qual família de cor, quão viva |
+| a tabela | **luminosidade** — fixa, por papel, em OKLab |
+
+Como OKLab é perceptualmente uniforme, fixar `BG` em `L=0.16` e `FG` em
+`L=0.92` dá **~15:1 de contraste com qualquer imagem do mundo**. Medido em
+três papéis muito diferentes — lanternas japonesas, lua nórdica e um
+hot rod — o contraste FG/BG deu `15.3:1` nos três.
+
+Três regras que vieram de comparar o resultado com os temas feitos à mão:
+
+- **Fundo e acento saem de lugares diferentes da foto.** O `hotrod.sh`
+  anota, na própria linha, que o `BG` é *"o preto do pneu, frio"* e o
+  `ACCENT` é *"ouro do bico, do capacete e dos raios"*. Fundo frio, acento
+  quente, na mesma imagem. Um matiz só apagaria essa tensão.
+- **O acento vem da cauda da distribuição, não da massa.** K-means por
+  área sempre engole o reflexo pequeno e vivo. Medindo o hot rod: 46% da
+  foto já está no matiz do ouro, e o ouro que o tema usou tem croma
+  `0.132` — presente só no 1% superior. Por isso o corte é no **p97**.
+- **`OK`, `WARN` e `ERR` mantêm o matiz semântico.** Verde que vira azul
+  deixa de dizer "ok". Da imagem eles pegam só o croma.
+
+A cor de pasta do Papirus é escolhida lendo o `fill:` dos SVGs do próprio
+tema de ícones e pegando a de menor ΔE contra o acento — se o Papirus
+ganhar uma cor nova, ela entra sozinha.
+
+> **Limite honesto:** quando a imagem tem vários destaques vivos, o
+> gerador escolhe um deles e nem sempre é o que uma pessoa escolheria. No
+> hot rod ele pega o vermelho da lataria em vez do ouro do capacete —
+> ambos defensáveis. Ajuste depois com `rice-cores set ACCENT <hex>`.
 
 ---
 
@@ -199,9 +250,10 @@ rice-cores               # criar um tema a partir de uma imagem
 | Comando | O que faz |
 |---|---|
 | `rice-theme` | Troca de tema e regera os catorze arquivos |
-| `rice-cores` | Cria um tema novo a partir de uma imagem |
+| `rice-cores` | Clona, renomeia e edita cor a cor os temas do usuário |
+| `rice-auto` | Deriva um tema inteiro de uma imagem, em OKLab |
 | `rice-anim` | Ritmo, quique (ζ) e estilo das animações |
-| `rice-wallpaper` | Troca o papel de parede e recalcula a paleta |
+| `rice-wallpaper` | Troca o papel de parede e reaplica o tema em vigor |
 | `rice-keyring` | Faz o desbloqueio da tela destravar o cofre de senhas |
 | `rice-vivido` | Realce de cor por shader, na tela inteira |
 | `rice-icons` · `rice-folders` | Tema de ícones e cor das pastas |

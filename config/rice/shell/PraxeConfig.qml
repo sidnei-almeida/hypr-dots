@@ -151,6 +151,14 @@ Singleton {
             // Cores só da barra. Vazio = usa a cor do tema atual.
             // Serve para destoar a barra do resto de propósito, sem
             // precisar criar um tema novo. Ex.: "barBg": "#101010cc"
+            // Tema automático a partir do papel de parede.
+            //
+            // DESLIGADO por padrão, de propósito: ligado, escolher um papel
+            // SUBSTITUI o tema em vigor — e quem só queria trocar a imagem
+            // perderia a paleta que ajustou à mão, sem ter pedido nada.
+            // Ligar é uma escolha; perder trabalho não pode ser o padrão.
+            property bool autoTema: false
+
             property string barBg: ""
             property string barBorder: ""
             property string barFg: ""
@@ -250,6 +258,7 @@ Singleton {
         }
     }
 
+    readonly property bool   autoTema:    cfg.autoTema    ?? false
     readonly property string layout:      cfg.layout      ?? "pill"
     readonly property string position:    cfg.position    ?? "top"
     readonly property real   scale:       cfg.scale       ?? 1.0
