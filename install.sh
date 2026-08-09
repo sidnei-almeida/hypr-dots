@@ -185,9 +185,28 @@ else
 fi
 
 # ── Entradas .desktop ───────────────────────────────────────────
+#
+# Só as PRÓPRIAS. As entradas de jogo que o Steam cria não estão no
+# repositório de propósito: ele as recria sozinho em toda instalação, e
+# versioná-las publicaria a biblioteca de jogos de quem commitou.
 etapa "Atalhos de aplicativo"
-exec_ou_mostra mkdir -p "$HOME/.local/share/applications"
-exec_ou_mostra cp -n "$REPO"/apps/applications/*.desktop "$HOME/.local/share/applications/" 2>/dev/null || true
+
+exec_ou_mostra mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/rice/icons"
+exec_ou_mostra cp -n "$REPO"/apps/icons/. "$HOME/.local/share/rice/icons/" 2>/dev/null || true
+
+# `__HOME__` em vez do caminho cravado: um `.desktop` guarda caminho
+# ABSOLUTO no campo Icon, e o do repositório foi escrito na máquina de
+# origem. Copiado cru para um usuário de outro nome, o ícone simplesmente
+# não aparece — e sem erro nenhum, que é o pior tipo de quebra.
+for f in "$REPO"/apps/applications/*.desktop; do
+    [[ -e $f ]] || continue
+    destino="$HOME/.local/share/applications/$(basename "$f")"
+    if (( SECO )); then
+        printf '      instalar %s (com __HOME__ → %s)\n' "$(basename "$f")" "$HOME"
+    else
+        sed "s|__HOME__|$HOME|g" "$f" > "$destino"
+    fi
+done
 ok "$(ls "$REPO/apps/applications" 2>/dev/null | wc -l) atalhos"
 
 # ── Extensões do VSCode ─────────────────────────────────────────

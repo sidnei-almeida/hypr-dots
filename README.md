@@ -15,6 +15,45 @@ trinta e sete utilitários — todos lendo as mesmas dez cores.
 
 </div>
 
+<div align="center">
+
+![Área de trabalho](docs/desktop-notch.webp)
+
+<sub>Tema **Samurai** · a cápsula flutuante recolhida no topo</sub>
+
+</div>
+
+---
+
+## Dois formatos, a mesma configuração
+
+A peça do topo tem dois modos, trocáveis em `pill.json` sem reiniciar nada.
+
+**Cápsula** — flutua no centro, encolhe num filete quando não está em uso e
+abre como uma gota que desce do recorte. Some do caminho.
+
+![Detalhe da cápsula](docs/notch-detalhe.webp)
+
+**Barra** — de ponta a ponta, altura fixa, nunca encolhe. As dez áreas
+sempre à vista, e o painel abre como menu ancorado ao botão que o chamou,
+em vez de a barra virar painel.
+
+![Detalhe da barra](docs/barra-detalhe.webp)
+
+<div align="center">
+
+![Modo barra](docs/desktop-barra.webp)
+
+</div>
+
+<div align="center">
+
+![Lançador](docs/lancador.webp)
+
+<sub>O lançador de aplicativos, com busca incremental</sub>
+
+</div>
+
 ---
 
 ## Instalação
