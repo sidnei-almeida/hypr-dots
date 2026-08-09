@@ -19,6 +19,16 @@ Item {
 
     property bool aberto: false
 
+    // Na RAIZ, e não junto do bloco de brilho lá embaixo.
+    //
+    // Em QML, LER uma propriedade sobe a cadeia de escopo, mas ESCREVER de
+    // dentro de um objeto aninhado (aqui, o StdioCollector dentro do
+    // Process) exige uma referência explícita. Declarada no meio da
+    // árvore, a leitura funcionava e a escrita virava "Invalid write to
+    // global property" — em tempo de execução, sem quebrar a carga, que é
+    // o tipo de erro que passa despercebido.
+    property bool brilhoDisponivel: false
+
     // Pedido de troca de painel, atendido pelo shell.qml.
     //
     // Sinal e não acesso direto a `bar.painel`: este componente é filho da
@@ -149,6 +159,129 @@ Item {
             }
         }
 
+        // ── Brilho ───────────────────────────────────────────
+    //
+    // Lido UMA VEZ, ao abrir o painel, e não continuamente: cada leitura
+    // custa ~36 ms de conversa com o monitor, e o valor só muda quando
+    // alguém o muda. Um Timer repetindo isso seria pagar por nada.
+
+    Process {
+        id: lerBrilho
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const v = parseInt(text.trim())
+                if (isNaN(v)) { root.brilhoDisponivel = false; return }
+                root.brilhoDisponivel = true
+                // Direto no `valor`, sem guarda de "sincronizando": esta
+                // barra não reenvia ao ser escrita de fora, porque o envio
+                // sai de `soltou`, que só o dedo dispara.
+                brilhoBarra.valor = v / 100
+            }
+        }
+    }
+    Process { id: aplicarBrilho }
+
+    // Relê ao ABRIR, porque as teclas XF86MonBrightness mudam o brilho por
+    // fora daqui — sem isto o controle mostraria o valor de quando o painel
+    // foi aberto pela última vez.
+    //
+    // Via `Connections`, e não `onAbertoChanged:` direto: este bloco vive
+    // dentro do ColumnLayout, e `aberto` é propriedade da RAIZ do
+    // componente. Um handler `onXChanged` só existe onde a propriedade
+    // existe — fora dali o QML recusa a carga inteira do arquivo.
+    Connections {
+        target: root
+        function onAbertoChanged() {
+            if (root.aberto) lerBrilho.exec([PraxeConfig.bin + "rice-brilho"])
+        }
+    }
+    Component.onCompleted: lerBrilho.exec([PraxeConfig.bin + "rice-brilho"])
+
+        // ── Barra deslizante própria ─────────────────────────
+        //
+        // Substitui o `Slider` do QtQuick Controls, que RENDERIZAVA certo e
+        // não arrastava: clicar e puxar não movia nada, embora o botão de
+        // mudo ao lado respondesse normalmente. Ou seja, a entrada chegava
+        // ao painel; o Slider é que perdia o gesto.
+        //
+        // A causa é o arrasto ser ROUBADO por um ancestral. Esta superfície
+        // tem HoverHandler em três níveis (surface, content, alvo) mais o
+        // rastreador que decide quando a barra recolhe. Num arrasto, quem
+        // reivindicar o ponteiro primeiro leva, e o Slider desiste sem
+        // reclamar. `preventStealing` é o que resolve: uma vez pressionada,
+        // esta área não devolve o gesto a ninguém até soltar.
+        //
+        // E de quebra o controle passa a ser nosso, o que importa aqui: o
+        // volume escreve a CADA movimento (PipeWire é instantâneo) e o
+        // brilho só ao SOLTAR (DDC/CI custa 87 ms). Dois comportamentos
+        // diferentes sob o mesmo desenho.
+        component BarraDeslizante: Item {
+            id: bd
+            property real valor: 0        // 0..1
+            // Exposto de propósito: quem sincroniza de fora precisa saber
+            // se o dedo está no controle, e alcançar a MouseArea por
+            // `children[2]` quebraria no dia em que alguém acrescentasse um
+            // retângulo antes dela.
+            readonly property bool pressionado: area.pressed
+            signal movido(real v)
+            signal soltou(real v)
+
+            implicitHeight: Math.round(16 * Theme.scale)
+
+            function valorEm(x) { return Math.max(0, Math.min(1, x / Math.max(1, width))) }
+
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
+                height: Math.round(5 * Theme.scale)
+                radius: height / 2
+                color: Theme.bgAlt
+                Rectangle {
+                    width: bd.valor * parent.width
+                    height: parent.height
+                    radius: height / 2
+                    color: PraxeConfig.colAccent
+                }
+            }
+
+            Rectangle {
+                x: bd.valor * (parent.width - width)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.round(13 * Theme.scale)
+                height: width
+                radius: width / 2
+                color: PraxeConfig.colAccent
+                // Cresce sob o dedo: confirma que o controle PEGOU o gesto,
+                // que é exatamente a informação que faltava quando ele não
+                // pegava e nada acontecia.
+                scale: area.pressed ? 1.25 : 1.0
+                Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
+            }
+
+            MouseArea {
+                id: area
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                preventStealing: true     // a linha que conserta o arrasto
+
+                // Clicar em qualquer ponto salta para lá: não é preciso
+                // acertar a bolinha de 13px, que seria um alvo cruel.
+                onPressed: mouse => { bd.valor = bd.valorEm(mouse.x); bd.movido(bd.valor) }
+                onPositionChanged: mouse => {
+                    if (!pressed) return
+                    bd.valor = bd.valorEm(mouse.x); bd.movido(bd.valor)
+                }
+                onReleased: bd.soltou(bd.valor)
+
+                // Roda em passos de 5%: é o gesto que se usa sem olhar.
+                onWheel: wheel => {
+                    bd.valor = Math.max(0, Math.min(1, bd.valor + (wheel.angleDelta.y > 0 ? 0.05 : -0.05)))
+                    bd.movido(bd.valor); bd.soltou(bd.valor)
+                }
+            }
+        }
+
         // ── Volume ───────────────────────────────────────────
         RowLayout {
             Layout.fillWidth: true
@@ -168,70 +301,86 @@ Item {
                 }
             }
 
-            Slider {
-                id: volSlider
+            BarraDeslizante {
+                id: volBarra
                 Layout.fillWidth: true
-                from: 0; to: 1
 
-                // Nada de binding em `value`, e nada de escrever no
-                // `moved`: recálculo de layout (ao esconder o painel)
-                // dispara `moved` mesmo sem o usuário tocar em nada, e o
-                // valor velho voltava para o Pipewire — o volume mudado
-                // pela tecla de mídia "voltava sozinho" segundos depois.
-                //
-                // Em vez disso: sincronizamos de fora para dentro sempre
-                // que o volume muda, e só escrevemos de dentro para fora
-                // enquanto o slider está de fato pressionado.
-                property bool sincronizando: false
+                // Volume escreve a cada movimento: o PipeWire é memória, e
+                // esperar soltar deixaria o som atrasado em relação ao dedo.
+                onMovido: v => { if (root.audioPronto) root.sink.audio.volume = v }
 
-                function sincronizar() {
-                    if (pressed) return
-                    sincronizando = true
-                    value = root.audioPronto ? root.sink.audio.volume : 0
-                    sincronizando = false
-                }
-
-                onValueChanged: {
-                    if (sincronizando || !pressed || !root.audioPronto) return
-                    root.sink.audio.volume = value
-                }
-
-                Component.onCompleted: sincronizar()
-                onVisibleChanged: if (visible) sincronizar()
-
+                // Sincroniza de fora para dentro, mas NUNCA durante o
+                // arrasto: o valor que volta do PipeWire chega defasado e
+                // empurraria o controle para trás debaixo do dedo.
                 Connections {
                     target: root.audioPronto ? root.sink.audio : null
-                    function onVolumeChanged() { volSlider.sincronizar() }
-                }
-
-                background: Rectangle {
-                    x: volSlider.leftPadding
-                    y: volSlider.topPadding + volSlider.availableHeight / 2 - height / 2
-                    width: volSlider.availableWidth
-                    height: Math.round(5 * Theme.scale)
-                    radius: height / 2
-                    color: Theme.bgAlt
-
-                    Rectangle {
-                        width: volSlider.visualPosition * parent.width
-                        height: parent.height
-                        radius: height / 2
-                        color: PraxeConfig.colAccent
+                    function onVolumeChanged() {
+                        if (!volBarra.pressionado) volBarra.valor = root.sink.audio.volume
                     }
                 }
-
-                handle: Rectangle {
-                    x: volSlider.leftPadding + volSlider.visualPosition * (volSlider.availableWidth - width)
-                    y: volSlider.topPadding + volSlider.availableHeight / 2 - height / 2
-                    width: Math.round(13 * Theme.scale)
-                    height: width
-                    radius: width / 2
-                    color: PraxeConfig.colAccent
-                }
+                Component.onCompleted: if (root.audioPronto) valor = root.sink.audio.volume
             }
 
             Text {
-                text: root.audioPronto ? Math.round(root.sink.audio.volume * 100) + "%" : "—"
+                text: root.audioPronto ? Math.round(volBarra.valor * 100) + "%" : "—"
+                color: PraxeConfig.colFg
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+                horizontalAlignment: Text.AlignRight
+                Layout.preferredWidth: Math.round(38 * Theme.scale)
+            }
+        }
+
+        // ── Brilho do monitor ────────────────────────────────
+        //
+        // Só aparece se houver monitor DDC/CI. Num notebook com
+        // retroiluminação normal, ou num monitor com DDC desligado no menu
+        // físico, a linha inteira some em vez de virar um controle que não
+        // move nada.
+        //
+        // ── POR QUE ESTE SLIDER É DIFERENTE DO DE VOLUME ───────
+        //
+        // Volume é PipeWire, em memória: escrever custa microssegundos e o
+        // slider pode mandar o valor a cada quadro do arrasto.
+        //
+        // Brilho é DDC/CI, conversa com o MONITOR pelo cabo de vídeo.
+        // Medido aqui, com o barramento em cache: 87 ms por escrita. Mandar
+        // a cada quadro empilharia dezenas de comandos numa fila serial, e
+        // o brilho chegaria segundos depois do dedo — arrastar pareceria
+        // travado mesmo com tudo funcionando.
+        //
+        // Então: o CONTROLE anda na hora (é só estado local) e o valor é
+        // mandado quando o movimento PARA. O temporizador abaixo é o que
+        // separa as duas coisas.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Math.round(12 * Theme.scale)
+            visible: root.brilhoDisponivel
+
+            Text {
+                // Glifo cheio ou vazio conforme o nível: a própria forma do
+                // ícone já diz onde está, antes de o olho chegar no número.
+                text: brilhoBarra.valor > 0.55 ? "󰃠" : "󰃞"
+                color: PraxeConfig.colMuted
+                font.family: Theme.nerdFontFamily
+                font.pixelSize: Math.round(15 * Theme.scale)
+            }
+
+            BarraDeslizante {
+                id: brilhoBarra
+                Layout.fillWidth: true
+
+                // Brilho só ao SOLTAR. Cada escrita custa 87 ms de conversa
+                // com o monitor; mandar a cada movimento empilharia dezenas
+                // de comandos numa fila serial e o brilho chegaria segundos
+                // depois do dedo. O controle anda na hora porque é estado
+                // local — só o envio espera.
+                onSoltou: v => aplicarBrilho.exec([PraxeConfig.bin + "rice-brilho",
+                                                   String(Math.max(5, Math.round(v * 100)))])
+            }
+
+            Text {
+                text: Math.round(brilhoBarra.valor * 100) + "%"
                 color: PraxeConfig.colFg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSize

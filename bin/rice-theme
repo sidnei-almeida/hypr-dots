@@ -61,6 +61,25 @@ apply() {
   : "${NAME:=$theme}" "${BG:?}" "${BG_ALT:?}" "${FG:?}" "${MUTED:?}" "${DIM:?}"
   : "${ACCENT:?}" "${ACCENT2:?}" "${OK:?}" "${WARN:?}" "${ERR:?}"
 
+  # ── Modo rápido: só o que o HYPRLAND lê ──────────────────────
+  #
+  # `RICE_SO_DECOR=1` gera apenas colors.lua, opacity.lua e decor.lua, e
+  # recarrega o Hyprland. Nada de GTK, kitty, hyprlock, fastfetch, mpv,
+  # kdeglobals nem reconstrução do tema de ícones.
+  #
+  # Existe por causa do painel de aparência. Ajustar a espessura da borda
+  # em 1px disparava o `set` completo: 17 arquivos e centenas de links
+  # simbólicos do tema de ícones, medidos em 3,44 s. Três segundos e meio
+  # entre apertar `+` e ver a borda mudar — para um valor que a pessoa vai
+  # ajustar cinco vezes seguidas até achar o ponto.
+  #
+  # Espessura, arredondamento, espaçamento e cor de borda são lidos SÓ
+  # pelo Hyprland. Regerar o resto não é cuidado, é desperdício.
+  #
+  # Implica `RICE_SEM_PAPEL`: mexer na borda nunca deve trocar a imagem.
+  local SO_DECOR=${RICE_SO_DECOR:-}
+  [[ -n $SO_DECOR ]] && RICE_SEM_PAPEL=1
+
   # AVISO é OPCIONAL: a cor do ponto de notificação do notch fechado.
   # Vazio significa "usa o acento", que é o que quase todo tema quer.
   # Ver a nota no Theme.qml sobre quando vale declarar.
@@ -161,7 +180,11 @@ EOF
   # "PraXe" não é uma escolha de tema base — é o que ESTE script gera.
   # Vê-lo em iconTheme significa apenas que a última coisa aplicada foi a
   # nossa; não é motivo para parar de recolorir.
-  if [[ $FIXOS == true && $BASE_ICO != Papirus-Dark \
+  # No modo rápido o tema de ícones nem é tocado: reconstruí-lo custa
+  # centenas de links simbólicos e não tem relação nenhuma com borda.
+  if [[ -n $SO_DECOR ]]; then
+    ICONES=$BASE_ICO
+  elif [[ $FIXOS == true && $BASE_ICO != Papirus-Dark \
         && $BASE_ICO != Papirus && $BASE_ICO != PraXe ]]; then
     ICONES=$BASE_ICO
   elif [[ -n $COR_PASTA ]] && [[ -d /usr/share/icons/Papirus-Dark ]] \
@@ -173,6 +196,42 @@ EOF
 
   mkdir -p "$HOME/.config/hypr" "$HOME/.config/rice/shell" \
            "$HOME/.config/fuzzel"
+
+  # ── Cor da borda das janelas ─────────────────────────────────
+  #
+  # Configurável por PAPEL da paleta, não por hex.
+  #
+  # Guardar o hex no pill.json seria mais simples e estaria errado: a
+  # borda deixaria de acompanhar o tema. Trocar do Nord para o Hotrod
+  # manteria a borda azul, e o rice inteiro existe para isso não acontecer.
+  #
+  # Guardando o PAPEL ("accent2", "ok", "err"), a escolha é sobre a
+  # FUNÇÃO da cor e sobrevive à troca de tema — cada tema resolve aquele
+  # papel com o seu próprio valor.
+  #
+  # Vazio significa o padrão, e o padrão é o que sempre foi: gradiente do
+  # acento para o acento secundário a 45°, inativa no DIM.
+  local BORDA1 BORDA2 BORDA_ANG BORDA_OFF
+  papel_cor() {
+    case "${1,,}" in
+      bg) echo "$BG" ;; bg_alt|bgalt) echo "$BG_ALT" ;; fg) echo "$FG" ;;
+      muted) echo "$MUTED" ;; dim) echo "$DIM" ;;
+      accent) echo "$ACCENT" ;; accent2) echo "$ACCENT2" ;;
+      ok) echo "$OK" ;; warn) echo "$WARN" ;; err) echo "$ERR" ;;
+      *) echo "" ;;
+    esac
+  }
+  local _b1="" _b2="" _bo="" _ba=""
+  if [[ -f $RICE/pill.json ]] && command -v jq >/dev/null 2>&1; then
+    _b1=$(jq -r '.bordaAtiva1  // ""' "$RICE/pill.json")
+    _b2=$(jq -r '.bordaAtiva2  // ""' "$RICE/pill.json")
+    _bo=$(jq -r '.bordaInativa // ""' "$RICE/pill.json")
+    _ba=$(jq -r '.bordaAngulo  // ""' "$RICE/pill.json")
+  fi
+  BORDA1=$(papel_cor "$_b1");   [[ -n $BORDA1   ]] || BORDA1=$ACCENT
+  BORDA2=$(papel_cor "$_b2");   [[ -n $BORDA2   ]] || BORDA2=$ACCENT2
+  BORDA_OFF=$(papel_cor "$_bo");[[ -n $BORDA_OFF ]] || BORDA_OFF=$DIM
+  BORDA_ANG=$_ba; [[ $BORDA_ANG =~ ^[0-9]+$ ]] || BORDA_ANG=45
 
   # ── Transparência ────────────────────────────────────────────
   # Desligada por padrão: é gosto, e ligar sozinho é decidir pelo
@@ -233,8 +292,8 @@ return {
   bg              = "rgb($BG)",
   fg              = "rgb($FG)",
   accent          = "rgb($ACCENT)",
-  active_border   = { colors = { "rgba(${ACCENT}ee)", "rgba(${ACCENT2}ee)" }, angle = 45 },
-  inactive_border = "rgba(${DIM}55)",
+  active_border   = { colors = { "rgba(${BORDA1}ee)", "rgba(${BORDA2}ee)" }, angle = ${BORDA_ANG} },
+  inactive_border = "rgba(${BORDA_OFF}55)",
   group_active    = "rgba(${ACCENT}40)",
   group_inactive  = "rgba(${BG_ALT}90)",
   group_text      = "rgb($FG)",
@@ -285,6 +344,14 @@ return {
 }
 EOF
   mv -f "$HOME/.config/hypr/decor.lua.novo" "$HOME/.config/hypr/decor.lua"
+
+  # Fim do caminho rápido. O Hyprland relê colors.lua e decor.lua no
+  # reload, e é só isso que muda quando se ajusta borda ou espaçamento.
+  if [[ -n $SO_DECOR ]]; then
+    hyprctl reload >/dev/null 2>&1 || true
+    echo "$theme" > "$CURRENT"
+    return 0
+  fi
 
   # ── fuzzel: launcher e motor dos menus ───────────────────────
   #

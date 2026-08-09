@@ -38,7 +38,13 @@ Item {
         }
     }
 
-    property bool confirmandoApagar: false
+    // Qual tema está com o apagar ARMADO, não um booleano.
+    //
+    // Guardar o slug e não um `true` resolve duas coisas de uma vez: só um
+    // cartão pode estar armado por vez, e o estado sobrevive à reciclagem
+    // do delegate — a GridView joga fora e reconstrói os itens ao rolar, e
+    // um booleano dentro do cartão se perderia no meio da confirmação.
+    property string apagandoTema: ""
     property int aba: 0     // 0 tema · 1 cores · 2 fontes · 3 sistema · 4 ícones
 
     // ── Dados ───────────────────────────────────────────────────
@@ -268,7 +274,7 @@ Item {
     // sobreviveria escondida, e o próximo toque no botão — talvez horas
     // depois, já sem lembrar do primeiro — apagaria de imediato.
     onAbertoChanged: {
-        confirmandoApagar = false
+        apagandoTema = ""
         if (aberto) recarregar()
     }
 
@@ -276,6 +282,41 @@ Item {
     Process { id: acao }
 
     function rodar(args) { acao.command = args; acao.running = true }
+
+    // Grava uma chave de janela e REGERA o tema.
+    //
+    // Duas etapas, e a segunda não é opcional: `bordaJanela`, `arredJanela`,
+    // os gaps e as cores da borda não são lidos pela barra — eles alimentam
+    // o `decor.lua` e o `colors.lua`, que o rice-theme ESCREVE. Gravar no
+    // pill.json e parar por aí mudaria o arquivo e não a tela.
+    //
+    // `RICE_SO_DECOR=1` gera SÓ o que o Hyprland lê (colors.lua, decor.lua,
+    // opacity.lua) e recarrega. Sem isso cada clique no `+` da borda
+    // disparava o `set` completo: 17 arquivos e a reconstrução do tema de
+    // ícones, medidos em 3,44 s. Com o caminho rápido, 0,10 s — e a
+    // diferença importa porque este é um valor que se ajusta cinco vezes
+    // seguidas até achar o ponto, não uma vez.
+    //
+    // Ele já implica `RICE_SEM_PAPEL`: mexer na borda nunca deve trocar a
+    // imagem de fundo.
+    function ajusteJanela(chave, valor) {
+        rodar(["bash", "-c",
+               PraxeConfig.bin + "rice-pill set " + chave + " " + JSON.stringify(String(valor)) +
+               " >/dev/null 2>&1; RICE_SO_DECOR=1 " + PraxeConfig.bin + "rice-theme set " +
+               "\"$(" + PraxeConfig.bin + "rice-theme current)\" >/dev/null 2>&1"])
+    }
+
+    // Os papéis oferecidos para a borda, na ordem em que fazem sentido:
+    // primeiro os dois acentos (o caso comum), depois os neutros, e os
+    // sinais no fim — usar ERR numa borda é escolha legítima, mas rara.
+    readonly property var papeisBorda: ["accent", "accent2", "fg", "muted", "dim",
+                                        "bg_alt", "ok", "warn", "err"]
+
+    function papelSeguinte(atual, passo) {
+        const l = papeisBorda
+        const i = Math.max(0, l.indexOf(atual || l[0]))
+        return l[(i + passo + l.length) % l.length]
+    }
 
     function aplicarTema(nome) {
         rodar([PraxeConfig.bin + "rice-theme", "set", nome]); temaAtual = nome
@@ -877,7 +918,12 @@ Item {
                             RowLayout {
                                 anchors.fill: parent
                                 anchors.leftMargin: Math.round(10 * Theme.scale)
-                                anchors.rightMargin: Math.round(10 * Theme.scale)
+                                // Folga maior à direita: os dois cantos
+                                // daquele lado são ocupados agora (indicador
+                                // em cima, lixeira embaixo), e sem isto o
+                                // nome de um tema longo passaria por baixo
+                                // deles em vez de ser encurtado.
+                                anchors.rightMargin: Math.round(28 * Theme.scale)
                                 spacing: Math.round(8 * Theme.scale)
 
                                 ColumnLayout {
@@ -912,13 +958,29 @@ Item {
                                     }
                                 }
 
-                                Text {
-                                    text: "󰄲"
-                                    visible: cartao.atual
-                                    color: PraxeConfig.colAccent
-                                    font.family: Theme.nerdFontFamily
-                                    font.pixelSize: Math.round(13 * Theme.scale)
-                                }
+                            }
+
+                            // ── Indicador de tema em uso ────────────
+                            //
+                            // Ancorado ao canto SUPERIOR direito, e não mais
+                            // dentro do RowLayout: ali ele ficava centralizado
+                            // na vertical, que é exatamente onde a lixeira
+                            // também caía. Dois controles disputando o mesmo
+                            // ponto do cartão.
+                            //
+                            // Cantos opostos resolvem sem depender de um
+                            // esconder o outro: em cima o ESTADO (este é o
+                            // tema em uso), embaixo a AÇÃO (apagar). Estado e
+                            // ação não se confundem quando não se tocam.
+                            Text {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.margins: Math.round(7 * Theme.scale)
+                                text: "󰄲"
+                                visible: cartao.atual
+                                color: PraxeConfig.colAccent
+                                font.family: Theme.nerdFontFamily
+                                font.pixelSize: Math.round(13 * Theme.scale)
                             }
 
                             MouseArea {
@@ -927,6 +989,85 @@ Item {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: root.aplicarTema(cartao.modelData.arquivo)
+                            }
+
+                            // ── Apagar, no próprio cartão ───────────
+                            //
+                            // Antes isto morava numa linha lá embaixo, na
+                            // seção de configurações, e só aparecia quando o
+                            // tema em uso era seu. Ou seja: para apagar um
+                            // tema você tinha que APLICÁ-LO primeiro, rolar
+                            // até o fim e achar o botão. Apagar o que não
+                            // está em uso era o caso comum, e era o único
+                            // que não dava para fazer.
+                            //
+                            // Aqui a ação fica onde o objeto está.
+                            //
+                            // Declarado DEPOIS do areaCard de propósito: em
+                            // QML, quem vem depois fica por cima, e sem isso
+                            // o clique na lixeira atravessaria para o cartão
+                            // e aplicaria o tema em vez de apagá-lo.
+                            Rectangle {
+                                id: lixeira
+                                visible: cartao.modelData.proprio === true
+                                         && (areaCard.containsMouse || areaLixo.containsMouse
+                                             || armado)
+                                readonly property bool armado:
+                                    root.apagandoTema === cartao.modelData.arquivo
+
+                                anchors.bottom: parent.bottom
+                                anchors.right: parent.right
+                                anchors.margins: Math.round(6 * Theme.scale)
+                                width: Math.round(22 * Theme.scale)
+                                height: width
+                                radius: width / 2
+                                // Vermelho só depois de armado. Antes disso é
+                                // um botão neutro: pintar de perigo o que
+                                // ainda não faz nada é gritar sem motivo.
+                                color: armado ? PraxeConfig.colErr
+                                              : Qt.rgba(PraxeConfig.colBgPuro.r,
+                                                        PraxeConfig.colBgPuro.g,
+                                                        PraxeConfig.colBgPuro.b, 0.85)
+                                border.width: 1
+                                border.color: armado ? PraxeConfig.colErr : PraxeConfig.colDim
+                                Behavior on color { ColorAnimation { duration: 130 } }
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    // Armado troca de glifo, e não só de cor:
+                                    // quem não distingue vermelho de cinza
+                                    // ainda enxerga que o botão mudou.
+                                    text: lixeira.armado ? "󰀦" : "󰆴"
+                                    color: lixeira.armado ? PraxeConfig.colBgPuro
+                                                          : PraxeConfig.colMuted
+                                    font.family: Theme.nerdFontFamily
+                                    font.pixelSize: Math.round(11 * Theme.scale)
+                                }
+
+                                MouseArea {
+                                    id: areaLixo
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        // Dois toques, sem diálogo: o primeiro
+                                        // arma e o segundo apaga. Desarma
+                                        // sozinho em 4s, então quem realmente
+                                        // quer apagar clica duas vezes e nem
+                                        // percebe o passo extra.
+                                        if (!lixeira.armado) {
+                                            root.apagandoTema = cartao.modelData.arquivo
+                                            desarmar.restart()
+                                            return
+                                        }
+                                        desarmar.stop()
+                                        root.apagandoTema = ""
+                                        root.rodar([PraxeConfig.bin + "rice-cores",
+                                                    "apagar", cartao.modelData.arquivo])
+                                        recarregarDepois.restart()
+                                    }
+                                }
+
                             }
                         }
                     }
@@ -1301,34 +1442,10 @@ Item {
                     // sozinho em 4s se você não confirmar, então quem
                     // realmente quer apagar clica duas vezes seguidas e
                     // nem percebe o passo extra.
-                    Linha {
-                        visible: root.temaProprio
-                        rotulo: root.confirmandoApagar
-                                ? Idioma.t("theme.own.confirm")
-                                : Idioma.t("theme.own.delete")
-
-                        BotaoRedondo {
-                            glifo: root.confirmandoApagar ? "󰅖" : "󰆴"
-                            ativo: true
-                            onAcionado: {
-                                if (!root.confirmandoApagar) {
-                                    root.confirmandoApagar = true
-                                    desarmar.restart()
-                                    return
-                                }
-                                desarmar.stop()
-                                root.confirmandoApagar = false
-                                root.rodar([PraxeConfig.bin + "rice-cores",
-                                            "apagar", root.temaAtual])
-                                recarregarDepois.restart()
-                            }
-                        }
-                    }
-
                     Timer {
                         id: desarmar
                         interval: 4000
-                        onTriggered: root.confirmandoApagar = false
+                        onTriggered: root.apagandoTema = ""
                     }
                 }
             }
@@ -1477,6 +1594,96 @@ Item {
                         color: PraxeConfig.colMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSize - 3
+                    }
+
+                    Separador {}
+
+                    // ── Janelas ──────────────────────────────────
+                    //
+                    // Estes quatro valores já existiam e alimentavam o
+                    // decor.lua, mas só editando o pill.json à mão. Um
+                    // painel de aparência que não deixa mudar a borda da
+                    // janela é um painel pela metade.
+                    Titulo { text: Idioma.t("win.title") }
+
+                    Linha {
+                        rotulo: Idioma.t("win.border")
+                        Passo {
+                            valor: PraxeConfig.bordaJanela
+                            // Teto em 6: acima disso a borda deixa de
+                            // marcar foco e vira moldura.
+                            onMenos: root.ajusteJanela("bordaJanela", Math.max(0, PraxeConfig.bordaJanela - 1))
+                            onMais:  root.ajusteJanela("bordaJanela", Math.min(6, PraxeConfig.bordaJanela + 1))
+                        }
+                    }
+
+                    Linha {
+                        rotulo: Idioma.t("win.rounding")
+                        Passo {
+                            valor: PraxeConfig.arredJanela
+                            // De dois em dois: o olho não distingue 1px de
+                            // raio, e o passo fino só faria clicar mais.
+                            onMenos: root.ajusteJanela("arredJanela", Math.max(0, PraxeConfig.arredJanela - 2))
+                            onMais:  root.ajusteJanela("arredJanela", Math.min(24, PraxeConfig.arredJanela + 2))
+                        }
+                    }
+
+                    Linha {
+                        rotulo: Idioma.t("win.gaps.in")
+                        Passo {
+                            valor: PraxeConfig.gapsIn
+                            onMenos: root.ajusteJanela("gapsIn", Math.max(0, PraxeConfig.gapsIn - 1))
+                            onMais:  root.ajusteJanela("gapsIn", Math.min(20, PraxeConfig.gapsIn + 1))
+                        }
+                    }
+
+                    Linha {
+                        rotulo: Idioma.t("win.gaps.out")
+                        Passo {
+                            valor: PraxeConfig.gapsOut
+                            onMenos: root.ajusteJanela("gapsOut", Math.max(0, PraxeConfig.gapsOut - 2))
+                            onMais:  root.ajusteJanela("gapsOut", Math.min(60, PraxeConfig.gapsOut + 2))
+                        }
+                    }
+
+                    Nota { text: Idioma.t("win.border.desc") }
+
+                    Linha {
+                        rotulo: Idioma.t("win.border.c1")
+                        Seletor {
+                            valor: PraxeConfig.bordaAtiva1 || "accent"
+                            onAnterior: root.ajusteJanela("bordaAtiva1", root.papelSeguinte(PraxeConfig.bordaAtiva1 || "accent", -1))
+                            onProximo:  root.ajusteJanela("bordaAtiva1", root.papelSeguinte(PraxeConfig.bordaAtiva1 || "accent", 1))
+                        }
+                    }
+
+                    Linha {
+                        rotulo: Idioma.t("win.border.c2")
+                        Seletor {
+                            valor: PraxeConfig.bordaAtiva2 || "accent2"
+                            onAnterior: root.ajusteJanela("bordaAtiva2", root.papelSeguinte(PraxeConfig.bordaAtiva2 || "accent2", -1))
+                            onProximo:  root.ajusteJanela("bordaAtiva2", root.papelSeguinte(PraxeConfig.bordaAtiva2 || "accent2", 1))
+                        }
+                    }
+
+                    Linha {
+                        rotulo: Idioma.t("win.border.angle")
+                        Passo {
+                            valor: PraxeConfig.bordaAngulo
+                            // Passos de 15°: o suficiente para escolher
+                            // direção sem virar um seletor de grau a grau.
+                            onMenos: root.ajusteJanela("bordaAngulo", (PraxeConfig.bordaAngulo + 345) % 360)
+                            onMais:  root.ajusteJanela("bordaAngulo", (PraxeConfig.bordaAngulo + 15) % 360)
+                        }
+                    }
+
+                    Linha {
+                        rotulo: Idioma.t("win.border.off")
+                        Seletor {
+                            valor: PraxeConfig.bordaInativa || "dim"
+                            onAnterior: root.ajusteJanela("bordaInativa", root.papelSeguinte(PraxeConfig.bordaInativa || "dim", -1))
+                            onProximo:  root.ajusteJanela("bordaInativa", root.papelSeguinte(PraxeConfig.bordaInativa || "dim", 1))
+                        }
                     }
 
                     Separador {}

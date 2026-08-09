@@ -182,8 +182,19 @@ hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO
 hl.bind("XF86AudioMute",        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),       { locked = true, description = "Mudo" })
 hl.bind("XF86AudioMicMute",     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),     { locked = true, description = "Mudo no microfone" })
 
-hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%+"), { locked = true, repeating = true, description = "Aumentar brilho" })
-hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%-"), { locked = true, repeating = true, description = "Diminuir brilho" })
+-- Brilho por DDC/CI, e não brightnessctl.
+--
+-- Estas duas teclas NÃO FAZIAM NADA nesta máquina, e sem dar erro: ela é
+-- desktop, `/sys/class/backlight` está vazio e o brightnessctl só enxerga
+-- LED de placa de rede e de tecla. Ele obedecia ao comando e mudava o
+-- brilho de coisa nenhuma.
+--
+-- Num monitor externo o brilho mora no MONITOR, e se fala com ele pelo
+-- cabo de vídeo (DDC/CI, sobre I²C). Ver ~/.local/bin/rice-brilho, que
+-- guarda o barramento em cache — é o que derruba cada chamada de 335ms
+-- para 67ms e torna o `repeating` abaixo utilizável.
+hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd("rice-brilho +5"), { locked = true, repeating = true, description = "Aumentar brilho" })
+hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("rice-brilho -5"), { locked = true, repeating = true, description = "Diminuir brilho" })
 
 hl.bind("XF86AudioNext",      hl.dsp.exec_cmd("playerctl next"),       { locked = true, description = "Próxima faixa" })
 hl.bind("XF86AudioPrev",      hl.dsp.exec_cmd("playerctl previous"),   { locked = true, description = "Faixa anterior" })

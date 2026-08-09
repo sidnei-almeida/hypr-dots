@@ -159,6 +159,22 @@ Singleton {
             // Ligar é uma escolha; perder trabalho não pode ser o padrão.
             property bool autoTema: false
 
+            // ── Janelas ─────────────────────────────────────
+            // Espessura, arredondamento e espaços das JANELAS (não da
+            // barra). Já alimentavam o decor.lua pelo rice-theme, mas só
+            // se editados à mão no pill.json — agora têm interface.
+            property int  bordaJanela: 1
+            property int  arredJanela: 10
+            property int  gapsIn: 4
+            property int  gapsOut: 10
+            // Papéis da paleta que pintam a borda. Vazio = o padrão
+            // (accent → accent2 a 45°, inativa em dim). Guardar o PAPEL e
+            // não o hex é o que faz a borda continuar acompanhando o tema.
+            property string bordaAtiva1: ""
+            property string bordaAtiva2: ""
+            property string bordaInativa: ""
+            property int    bordaAngulo: 45
+
             property string barBg: ""
             property string barBorder: ""
             property string barFg: ""
@@ -259,6 +275,14 @@ Singleton {
     }
 
     readonly property bool   autoTema:    cfg.autoTema    ?? false
+    readonly property int    bordaJanela:  cfg.bordaJanela  ?? 1
+    readonly property int    arredJanela:  cfg.arredJanela  ?? 10
+    readonly property int    gapsIn:       cfg.gapsIn       ?? 4
+    readonly property int    gapsOut:      cfg.gapsOut      ?? 10
+    readonly property string bordaAtiva1:  cfg.bordaAtiva1  ?? ""
+    readonly property string bordaAtiva2:  cfg.bordaAtiva2  ?? ""
+    readonly property string bordaInativa: cfg.bordaInativa ?? ""
+    readonly property int    bordaAngulo:  cfg.bordaAngulo  ?? 45
     readonly property string layout:      cfg.layout      ?? "pill"
     readonly property string position:    cfg.position    ?? "top"
     readonly property real   scale:       cfg.scale       ?? 1.0

@@ -452,6 +452,11 @@ ShellRoot {
                 if (bar.emAparencia) return Math.round(555 * Theme.scale)
                 let h = 140
                 if (centro.temMidia) h += 66
+                // A linha de brilho só existe quando há monitor DDC/CI, e
+                // a altura do painel é CRAVADA aqui — sem esta soma a linha
+                // era desenhada e ficava fora do recorte, invisível e sem
+                // erro nenhum para denunciar.
+                if (centro.brilhoDisponivel) h += 34
                 const n = Notificacoes.quantidade
                 if (n > 0) h += 26 + Math.min(n, 3) * 50
                 else if (Notificacoes.silencioso) h += 26
@@ -657,7 +662,19 @@ GridLayout {
                 Item {
                     id: mark
                     Layout.alignment: bar.vertical ? Qt.AlignHCenter : Qt.AlignVCenter
-                    visible: PraxeConfig.showMenuDot
+
+                    // Fora do modo COMPACTO.
+                    //
+                    // O compacto é a cápsula reduzida ao essencial, e todo o
+                    // resto já se retira dele: áreas, mídia, recursos,
+                    // volume e clima têm `!bar.compacto`. O logo era o único
+                    // que ficava — e ficava por esquecimento, não por
+                    // decisão. Sozinho ao lado da hora, ele passava a
+                    // parecer o assunto da cápsula em vez de um botão.
+                    //
+                    // Não se perde alcance: o compacto abre a barra inteira
+                    // quando o ponteiro chega, e ali o logo está de volta.
+                    visible: PraxeConfig.showMenuDot && !bar.compacto
 
                     Layout.preferredWidth: Math.round(20 * Theme.scale)
                     Layout.preferredHeight: Layout.preferredWidth
