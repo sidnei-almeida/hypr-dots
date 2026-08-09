@@ -1,0 +1,8 @@
+desktop-plus-bin
+elephant
+hyprshade
+odin4-cli
+perplexity
+protonup-qt-bin
+visual-studio-code-bin
+zapzap

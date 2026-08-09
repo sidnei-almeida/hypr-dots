@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Extrai o texto de uma área da tela e joga na área de transferência.
+# Atalho: SUPER + CTRL + PRINT
+#
+# Útil para copiar texto de imagem, vídeo, PDF escaneado ou de qualquer
+# janela que não deixa selecionar.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+command -v tesseract >/dev/null 2>&1 || {
+  notify-send -u critical "$(txt notif.app.ocr)" "$(txt notif.ocr.notesseract)"; exit 1; }
+
+tmp=$(mktemp --suffix=.png)
+trap 'rm -f "$tmp" "${tmp%.png}.txt"' EXIT
+
+geometria=$(slurp -b 1a1b2680 -c 7aa2f7ff -w 2) || exit 0
+grim -g "$geometria" "$tmp"
+
+# -l por: reconhece acentuação; sem isso "ção" vira "cao"
+idioma=por
+tesseract --list-langs 2>/dev/null | grep -qx por || idioma=eng
+
+texto=$(tesseract "$tmp" - -l "$idioma" 2>/dev/null | sed '/^\s*$/d')
+
+if [[ -z $texto ]]; then
+  notify-send "$(txt notif.app.ocr)" "$(txt notif.ocr.notext)"
+  exit 0
+fi
+
+printf '%s' "$texto" | wl-copy
+linhas=$(wc -l <<< "$texto")
+notify-send -t 3000 "$(txt notif.ocr.copied)" "$(txt notif.ocr.lines "$linhas")"

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Vigia da barra.
+#
+# O processo do Quickshell pode continuar vivo e mesmo assim perder a
+# superfície na tela — foi o que aconteceu quando o compositor ficou sem
+# saída de vídeo por um instante ("There are no outputs" no log dele).
+# Nesse estado o `pgrep` engana: acusa vivo, mas não há barra nenhuma.
+#
+# Por isso o teste aqui é pela CAMADA no compositor, não pelo processo.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+SHELL_DIR="$HOME/.config/rice/shell"
+INTERVALO=${1:-20}
+
+tem_camada() {
+  hyprctl layers -j 2>/dev/null |
+    grep -q '"namespace": *"praxe-bar"'
+}
+
+subir() {
+  pkill -x qs 2>/dev/null
+  sleep 1
+  setsid -f qs -p "$SHELL_DIR" >/dev/null 2>&1
+}
+
+# Um respiro no início: a barra pode ainda estar subindo com a sessão
+sleep 15
+
+while true; do
+  if ! tem_camada; then
+    subir
+    sleep 5
+    tem_camada && notify-send -t 3000 "$(txt notif.app.bar)" "$(txt notif.bar.restarted)" 2>/dev/null
+  fi
+  sleep "$INTERVALO"
+done

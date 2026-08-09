@@ -1,0 +1,56 @@
+# Micro, mas lançável pelo gerenciador de arquivos.
+#
+# POR QUE ESTE ARQUIVO EXISTE
+#
+# O micro.desktop do sistema é `Terminal=true`. Um .desktop assim não diz
+# QUAL terminal usar — ele delega essa escolha a quem o lança. Quem lança
+# aqui é o GLib (é ele que está por trás do "Abrir com" do Nautilus), e o
+# GLib não pergunta ao sistema qual é o terminal: ele varre uma lista
+# FIXA, compilada dentro dele. Nesta máquina a lista é:
+#
+#   ptyxis, gnome-terminal, xfce4-terminal, tilix, konsole, nxterm
+#
+# Kitty não está nela, e nenhum dos seis está instalado. Resultado: todo
+# clique em arquivo de texto morria com
+#
+#   "Unable to find terminal required for application"
+#
+# e o Nautilus não mostrava erro nenhum — o arquivo simplesmente não
+# abria. Como o micro é o handler padrão de text/plain, isso derrubava
+# junto .txt, .py, .c, .html, .css, .xml, .sh, .md e todo o resto do
+# código: praticamente tudo que não fosse imagem, vídeo ou PDF.
+#
+# A variável TERMINAL=kitty do ambiente não ajuda — o GLib não a lê.
+#
+# A SAÍDA: declarar `Terminal=false` e chamar o kitty NÓS MESMOS no Exec.
+# Assim não há escolha a delegar, e a lista fixa do GLib deixa de importar.
+# É o mesmo padrão para qualquer outro app de terminal que precise ser
+# clicável (vim, htop): copiar este arquivo e trocar o comando.
+#
+# NÃO edite /usr/share/applications/micro.desktop para consertar isto: o
+# pacman sobrescreve esse arquivo a cada atualização do micro. Entradas em
+# ~/.local/share/applications são nossas e sobrevivem.
+
+[Desktop Entry]
+Type=Application
+Version=1.0
+
+Name=Micro
+GenericName=Editor de Texto
+Comment=Editar arquivos de texto no terminal
+Name[en]=Micro
+GenericName[en]=Text Editor
+Comment[en]=Edit text files in a terminal
+
+# O `--` fecha as opções do kitty: sem ele, um arquivo cujo nome comece
+# com `-` seria lido como opção do kitty em vez de argumento do micro.
+Exec=kitty -- micro %F
+Icon=micro
+Terminal=false
+StartupNotify=false
+# Uma categoria principal só (Utility). Com Utility E Development o app
+# aparece duas vezes em menus que agrupam por categoria.
+Categories=Utility;TextEditor;
+Keywords=texto;editor;terminal;text;
+
+MimeType=text/plain;text/markdown;text/csv;text/html;text/css;text/xml;application/xml;application/json;application/javascript;application/x-shellscript;text/x-shellscript;text/x-python;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/x-java;text/x-perl;text/x-sql;text/x-diff;text/x-makefile;text/x-lua;text/x-go;text/rust;text/x-yaml;application/x-yaml;application/toml;text/x-tex;

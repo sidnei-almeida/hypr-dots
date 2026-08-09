@@ -1,0 +1,32 @@
+# ── Artefatos gerados pelo rice-theme ───────────────────────────
+#
+# Estes arquivos são ESCRITOS a cada troca de tema, a partir da paleta em
+# `config/rice/themes/<nome>.sh`. Versioná-los seria versionar a saída de
+# um gerador: todo `rice-theme set` viraria um diff sujo, e um `git pull`
+# poderia trazer de volta a paleta de outra máquina por cima da sua.
+#
+# Como `~/.config/hypr` e `~/.config/rice` são LIGAÇÕES para este repo, os
+# arquivos gerados caem aqui dentro de verdade — por isso o ignore precisa
+# existir, não é precaução teórica.
+#
+# Quem os recria é o último passo do install.sh.
+config/hypr/colors.lua
+config/hypr/decor.lua
+config/hypr/opacity.lua
+config/hypr/hyprlock.conf
+config/hypr/hyprpaper.conf
+config/hypr/*.novo
+config/kitty/colors.conf
+
+# ── Estado, não configuração ────────────────────────────────────
+#
+# `current` guarda o tema em uso NESTA máquina. É estado local: se fosse
+# versionado, trocar de tema no desktop mudaria o tema do notebook no
+# próximo pull, sem ninguém pedir.
+config/rice/current
+
+# ── Sobras ──────────────────────────────────────────────────────
+*.bak
+*.bak-*
+*~
+.DS_Store

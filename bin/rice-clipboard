@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Histórico da área de transferência.
+# Atalho: SUPER + CTRL + V
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+if ! command -v cliphist >/dev/null 2>&1; then
+  notify-send "$(txt notif.app.clip)" "$(txt notif.clip.nocliphist)"
+  exit 1
+fi
+
+pkill -x fuzzel 2>/dev/null && exit 0
+
+selection=$(cliphist list | fuzzel --dmenu --prompt "   " \
+  --placeholder "Buscar no histórico..." --lines 14 --width 60) || exit 0
+
+[[ -z $selection ]] && exit 0
+
+printf '%s' "$selection" | cliphist decode | wl-copy
+notify-send -t 1500 "$(txt notif.clip.title)" "$(txt notif.clip.copied)"

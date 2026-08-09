@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# Ajusta a aparência que não é cor e reaplica o tema.
+#
+#   rice-set font "Fira Code Nerd Font"     interface: barra, menus
+#   rice-set termfont "Hack Nerd Font"      terminal
+#   rice-set appfont "Inter"                aplicativos GTK e Qt
+#   rice-set fontsize 13 / termsize 10 / appsize 11
+#   rice-set fonts            monoespaçadas instaladas
+#   rice-set appfonts         proporcionais instaladas
+#   rice-set show             mostra os ajustes atuais
+#
+# Grava em ~/.config/rice/settings.sh, que o rice-theme lê a cada
+# aplicação — por isso qualquer mudança aqui repropaga para a barra,
+# menus, terminal, Qt e GTK de uma vez.
+#
+# São três fontes e não uma porque cada superfície tem uma exigência
+# diferente: terminal PRECISA de monoespaçada, aplicativo lê melhor com
+# proporcional, e a interface do rice usa monoespaçada por identidade.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+ARQ="$HOME/.config/rice/settings.sh"
+
+FONT="JetBrainsMono Nerd Font"
+FONT_SIZE=12
+FONT_TERM="JetBrainsMono Nerd Font"
+TERM_FONT_SIZE=9
+FONT_APP="Adwaita Sans"
+APP_FONT_SIZE=10
+[[ -f $ARQ ]] && source "$ARQ"
+
+gravar() {
+  mkdir -p "$(dirname "$ARQ")"
+  cat > "$ARQ" <<EOF
+# Ajustes de aparência que não são cor.
+# Lido pelo rice-theme a cada aplicação de tema.
+# Editável à mão ou pelo painel de aparência da barra.
+
+# Fonte da INTERFACE do rice: barra, menus, lançador.
+# Monoespaçada, porque é a identidade do sistema e alinha as colunas.
+FONT="$FONT"
+FONT_SIZE=$FONT_SIZE
+
+# Fonte do TERMINAL. Precisa ser monoespaçada, sem exceção.
+FONT_TERM="$FONT_TERM"
+TERM_FONT_SIZE=$TERM_FONT_SIZE
+
+# Fonte dos APLICATIVOS (GTK e Qt): gerenciador de arquivos, diálogos.
+# Proporcional de propósito — monoespaçada em app de verdade cansa a
+# leitura e é o que dá aquele ar de "tudo é terminal".
+FONT_APP="$FONT_APP"
+APP_FONT_SIZE=$APP_FONT_SIZE
+EOF
+  rice-theme set "$(rice-theme current)" >/dev/null 2>&1 || true
+}
+
+# Enxuga a lista crua para o que serve num seletor.
+#
+# A lista do fontconfig tem 500+ entradas e é imprestável: a maior parte
+# é variante de PESO da mesma família ("Roboto Light") ou apelido curto
+# que o pacote registra junto do nome completo ("JetBrainsMono NFM" é o
+# mesmo que "JetBrainsMono Nerd Font Mono"). O app escolhe o peso
+# sozinho a partir da família base — quem precisa aparecer é só ela.
+enxugar() {
+  # O prefixo é opcional e separado de propósito: sem ele, ' Light$' não
+  # casa com ' ExtraLight$' e a variante passa batido.
+  grep -vE ' (Extra|Ultra|Semi|Demi)?(Thin|Light|Medium|Regular|Bold|Black|Heavy|Book|Blk|Bk|Lt|Md|Th|Condensed|Italic|Oblique|Display|Unjoined|Looped|Rotated|Vertical|Test)$' |
+    grep -vE ' (NF|NFM|NFP)$' |
+    grep -vE '^[^A-Za-z]' |
+    # Noto de escrita específica (Tifinagh, SignWriting, ...) não serve
+    # de fonte de interface. awk e não grep porque a regra é "descarta,
+    # exceto Mono" — negação com exceção que ERE puro não expressa.
+    awk '!/^Noto (Sans|Serif) / || /^Noto (Sans|Serif) Mono$/'
+}
+
+# Monoespaçadas: fonte de largura variável quebra o alinhamento das
+# caixas do fastfetch e das colunas do terminal.
+listar_fontes() {
+  fc-list :spacing=100 family 2>/dev/null |
+    tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sort -u
+}
+
+listar_mono_uteis() { listar_fontes | enxugar; }
+
+# Proporcionais: o complemento do conjunto acima.
+#
+# Atenção ao `:` — em `fc-list PADRAO ELEMENTO` o primeiro argumento é o
+# PADRÃO. `fc-list family` procura uma fonte chamada "family" e devolve
+# nada; o `:` é o padrão vazio, que casa com todas.
+listar_todas() {
+  fc-list : family 2>/dev/null |
+    tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sort -u
+}
+
+# As proporcionais que servem de fato para interface.
+#
+# A lista crua tem 500+ entradas e é imprestável num seletor: a maior
+# parte é variante de PESO da mesma família ("Roboto Light", "Roboto
+# Thin") ou Noto de uma escrita específica ("Noto Sans Tifinagh"). O
+# app escolhe o peso sozinho a partir da família base — quem precisa
+# aparecer é só ela.
+listar_proporcionais() {
+  LC_ALL=C comm -23 <(listar_todas | LC_ALL=C sort -u) \
+                    <(listar_fontes | LC_ALL=C sort -u) | enxugar |
+    grep -vE '^Noto (Sans|Serif) .' |
+    grep -vE '^Noto (Kufi|Naskh|Nastaliq|Rashi|Fangsong|Music|Traditional|Znamenny)' |
+    grep -vE '^[^A-Za-z]'
+}
+
+exige() {   # exige <valor> <listador> <rotulo>
+  "$2" | grep -qxF "$1" || {
+    echo "rice-set: $(txt cli.font.notinstalled2 "$1")" >&2; exit 1; }
+}
+
+num_entre() {  # num_entre <valor> <min> <max>
+  [[ $1 =~ ^[0-9]+$ ]] && (( $1 >= $2 && $1 <= $3 ))
+}
+
+# Fontes que valem a pena e existem nos repos. Lista curta e curada:
+# "tudo que casa com ttf-" traria centenas de pacotes sem serventia.
+CATALOGO_FONTES=(
+  "inter-font|Inter|prop|A melhor sans para interface, feita para tela"
+  "cantarell-fonts|Cantarell|prop|A clássica do GNOME, humanista"
+  "ttf-dejavu|DejaVu|prop|Cobertura enorme de símbolos"
+  "ttf-cascadia-code-nerd|Cascadia Code|mono|Da Microsoft, com ligaduras"
+  "ttf-firacode-nerd|Fira Code|mono|Ligaduras de programação, muito legível"
+  "ttf-iosevka-nerd|Iosevka|mono|Estreita, cabe mais coluna na tela"
+  "ttf-hack-nerd|Hack|mono|Sóbria, desenhada para código"
+  "ttf-meslo-nerd|Meslo|mono|Derivada da Menlo, espaçada"
+  "noto-fonts-cjk|Noto CJK|prop|Ideogramas em alta qualidade (~350 MB)"
+)
+
+loja_fontes() {
+  local primeiro=1
+  printf '['
+  for linha in "${CATALOGO_FONTES[@]}"; do
+    IFS='|' read -r pkg nome tipo desc <<< "$linha"
+    local instalado=false
+    pacman -Qq "$pkg" >/dev/null 2>&1 && instalado=true
+    [[ $primeiro -eq 0 ]] && printf ','
+    primeiro=0
+    printf '{"pkg":%s,"nome":%s,"tipo":%s,"desc":%s,"instalado":%s}' \
+      "$(printf '%s' "$pkg" | jq -Rs .)" "$(printf '%s' "$nome" | jq -Rs .)" \
+      "$(printf '%s' "$tipo" | jq -Rs .)" "$(printf '%s' "$desc" | jq -Rs .)" "$instalado"
+  done
+  printf ']\n'
+}
+
+instalar_fonte() {
+  local ajudante=pacman
+  command -v paru >/dev/null && ajudante=paru
+  command -v yay  >/dev/null && ajudante=yay
+  # Terminal é obrigatório: a instalação pede senha e mostra progresso.
+  if [[ $ajudante == pacman ]]; then
+    kitty --class rice-float -e sudo pacman -S --needed "$1"
+  else
+    kitty --class rice-float -e "$ajudante" -S --needed "$1"
+  fi
+  fc-cache -f >/dev/null 2>&1 || true
+  notify-send -t 2500 "$(txt notif.app.fonts)" "$(txt notif.fonts.updated)" 2>/dev/null || true
+}
+
+case "${1:-show}" in
+  font)
+    [[ -n ${2:-} ]] || { echo "$(txt cli.usage): rice-set font \"Nome\"" >&2; exit 2; }
+    exige "$2" listar_fontes "monoespaçada"; FONT="$2"; gravar
+    notify-send -t 2000 "$(txt notif.font.interface)" "$FONT" 2>/dev/null || true ;;
+  termfont)
+    [[ -n ${2:-} ]] || { echo "$(txt cli.usage): rice-set termfont \"Nome\"" >&2; exit 2; }
+    exige "$2" listar_fontes "monoespaçada"; FONT_TERM="$2"; gravar
+    notify-send -t 2000 "$(txt notif.font.terminal)" "$FONT_TERM" 2>/dev/null || true ;;
+  appfont)
+    [[ -n ${2:-} ]] || { echo "$(txt cli.usage): rice-set appfont \"Nome\"" >&2; exit 2; }
+    # Aqui aceita qualquer fonte instalada: quem quiser monoespaçada nos
+    # apps que use — é escolha, não erro.
+    listar_todas | grep -qxF "$2" || {
+      echo "rice-set: $(txt cli.font.notinstalled "$2")" >&2; exit 1; }
+    FONT_APP="$2"; gravar
+    notify-send -t 2000 "$(txt notif.font.apps)" "$FONT_APP" 2>/dev/null || true ;;
+  fontsize)
+    num_entre "${2:-}" 8 20 || { echo "rice-set: tamanho fora de 8..20" >&2; exit 2; }
+    FONT_SIZE=$2; gravar ;;
+  termsize)
+    num_entre "${2:-}" 6 20 || { echo "rice-set: tamanho fora de 6..20" >&2; exit 2; }
+    TERM_FONT_SIZE=$2; gravar ;;
+  appsize)
+    num_entre "${2:-}" 7 18 || { echo "rice-set: tamanho fora de 7..18" >&2; exit 2; }
+    APP_FONT_SIZE=$2; gravar ;;
+  fonts)     listar_mono_uteis ;;
+  loja)      loja_fontes ;;
+  instalar)  instalar_fonte "${2:?nome do pacote}" ;;
+  appfonts)  listar_proporcionais ;;
+  show)
+    echo "FONT=$FONT";           echo "FONT_SIZE=$FONT_SIZE"
+    echo "FONT_TERM=$FONT_TERM"; echo "TERM_FONT_SIZE=$TERM_FONT_SIZE"
+    echo "FONT_APP=$FONT_APP";   echo "APP_FONT_SIZE=$APP_FONT_SIZE" ;;
+  *) echo "$(txt cli.usage): rice-set [font|termfont|appfont <nome>|fontsize|termsize|appsize <n>|fonts|appfonts|show]" >&2; exit 2 ;;
+esac

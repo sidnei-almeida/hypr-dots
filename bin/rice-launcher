@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Abre o lançador de aplicativos. Se já estiver aberto, fecha.
+# Atalho: SUPER + SPACE
+
+if pkill -x fuzzel 2>/dev/null; then
+  exit 0
+fi
+
+exec fuzzel --prompt "   " --placeholder "Buscar aplicativo..."

@@ -1,0 +1,1159 @@
+#!/usr/bin/env bash
+# ┌──────────────────────────────────────────────────────────────┐
+# │  Troca o tema de tudo de uma vez, a quente.                   │
+# └──────────────────────────────────────────────────────────────┘
+#
+#   rice-theme              escolhe pelo menu
+#   rice-theme list         lista os temas
+#   rice-theme set <nome>   aplica direto
+#   rice-theme current      mostra o tema atual
+#
+# Cada tema é UM arquivo de paleta em ~/.config/rice/themes/<nome>.sh.
+# Este script renderiza essa paleta para os formatos de cada programa
+# (Hyprland, a barra, fuzzel, kitty, Qt, GTK) e recarrega o que dá.
+#
+# ATENÇÃO: fuzzel.ini e hyprlock.conf são REGERADOS a cada troca.
+# Para personalizar layout/fonte deles, edite os modelos aqui neste script.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+# Pastas do usuário — vêm do xdg-user-dirs. Ver rice-pastas.sh.
+source "$HOME/.local/bin/rice-pastas.sh"
+
+set -euo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+
+RICE="$HOME/.config/rice"
+THEMES="$RICE/themes"
+CURRENT="$RICE/current"
+# Fonte e tamanho vêm de settings.sh, para o painel de aparência poder
+# mudá-los sem tocar neste script. Com o arquivo ausente, valem estes.
+FONT="JetBrainsMono Nerd Font"
+FONT_SIZE=12
+FONT_TERM="JetBrainsMono Nerd Font"
+TERM_FONT_SIZE=9
+FONT_APP="Adwaita Sans"
+APP_FONT_SIZE=10
+[[ -f "$HOME/.config/rice/settings.sh" ]] && source "$HOME/.config/rice/settings.sh"
+
+die() { echo "rice-theme: $*" >&2; exit 1; }
+
+list_themes() {
+  find "$THEMES" -maxdepth 1 -name '*.sh' -printf '%f\n' 2>/dev/null |
+    sed 's/\.sh$//' | sort
+}
+
+current_theme() {
+  [[ -f $CURRENT ]] && cat "$CURRENT" || echo "tokyo-night"
+}
+
+# ── Renderização ────────────────────────────────────────────────
+apply() {
+  local theme="$1"
+  local file="$THEMES/$theme.sh"
+  [[ -f $file ]] || die "$(txt cli.theme.noexist.hint "$theme")"
+
+  # shellcheck source=/dev/null
+  source "$file"
+
+  : "${NAME:=$theme}" "${BG:?}" "${BG_ALT:?}" "${FG:?}" "${MUTED:?}" "${DIM:?}"
+  : "${ACCENT:?}" "${ACCENT2:?}" "${OK:?}" "${WARN:?}" "${ERR:?}"
+
+  # AVISO é OPCIONAL: a cor do ponto de notificação do notch fechado.
+  # Vazio significa "usa o acento", que é o que quase todo tema quer.
+  # Ver a nota no Theme.qml sobre quando vale declarar.
+  #
+  # Note o `:=` e não o `:?` das linhas acima — este não aborta quando
+  # falta. Ele existe só para a variável passar a EXISTIR, já que o
+  # script roda com `set -u` e a expansão adiante quebraria com ela
+  # indefinida.
+  : "${AVISO:=}"
+
+  # ── Papel de parede que acompanha o tema ─────────────────────
+  #
+  # Escrito INLINE, e deliberadamente NÃO chamando o rice-wallpaper.
+  #
+  # Aquele script termina com `rice-theme set $(rice-theme current)` para
+  # recalcular a paleta depois de trocar a imagem. Chamá-lo daqui fecharia
+  # um laço infinito entre os dois — cada um reentrando no outro. Duplicar
+  # estas seis linhas é mais barato que quebrar aquele fluxo.
+  #
+  # Mesmo escape dos ícones, pelo mesmo motivo: com `papelFixo: true` no
+  # pill.json o tema não encosta na imagem. Sem isso, quem escolhesse um
+  # papel à mão o perderia na próxima troca de tema, sem entender por quê.
+  local PAPEL_FIXO=false
+  [[ -f $RICE/pill.json ]] && command -v jq >/dev/null 2>&1 \
+    && PAPEL_FIXO=$(jq -r '.papelFixo // false' "$RICE/pill.json")
+
+  if [[ -n ${WALLPAPER:-} && $PAPEL_FIXO != true ]]; then
+    local _wp="$(rice_pasta PICTURES Pictures)/Wallpapers/$WALLPAPER"
+    if [[ -f $_wp ]]; then
+      hyprctl hyprpaper wallpaper ",$_wp" >/dev/null 2>&1 || true
+      cat > "$HOME/.config/hypr/hyprpaper.conf" <<EOF
+preload = $_wp
+wallpaper = ,$_wp
+splash = false
+ipc = on
+EOF
+    fi
+  fi
+
+  # ── Ícones e cor das pastas que acompanham o tema ────────────
+  #
+  # São DUAS decisões independentes, e o erro que morava aqui era tratá-las
+  # como uma só:
+  #
+  #   TEMA BASE  — Papirus, Tela, Kora... Escolha do usuário, no painel.
+  #                Travada por `iconesFixos`.
+  #   COR DA PASTA — travada por `folderColor`. Vazio (ou "auto") significa
+  #                "segue o tema", que é o padrão.
+  #
+  # Antes, `iconesFixos` travava as duas. Bastava tocar UMA VEZ no seletor
+  # de ícones do painel — que liga essa chave — para a cor das pastas
+  # congelar para sempre no azul padrão do Papirus. Era esse o sintoma:
+  # com o Maré (teal) na tela, o gerenciador de arquivos aparecia com
+  # pasta azul #5294e2, que é exatamente a pasta do Catppuccin. O tema
+  # trocava em tudo, menos onde mais se olha.
+  #
+  # Cada tema declara PASTAS=<cor do Papirus>, escolhida por distância em
+  # CIELAB até o acento (com correção a olho onde a matemática erra o
+  # espírito da paleta — ver o comentário em cada arquivo de tema). O
+  # rice-folders monta com ela um tema "PraXe" que herda o Papirus-Dark e
+  # só troca as pastas.
+  #
+  # Recolorir só funciona sobre o Papirus: as ~78 variantes coloridas por
+  # tamanho são dele. Se o usuário fixou OUTRO tema base, a cor do tema
+  # não tem como ser aplicada e é ignorada — não há o que recolorir.
+  #
+  # O nome resultante tem de ser UM só, porque é escrito em quatro lugares
+  # (gtk-3.0, gtk-4.0, gsettings e kdeglobals). Antes havia "Papirus-Dark"
+  # fixo em dois deles, e metade dos apps ficava com o ícone antigo.
+  local ICONES=Papirus-Dark FIXOS=false BASE_ICO=Papirus-Dark COR_PASTA=""
+  if [[ -f $RICE/pill.json ]] && command -v jq >/dev/null 2>&1; then
+    FIXOS=$(jq -r    '.iconesFixos // false'         "$RICE/pill.json")
+    BASE_ICO=$(jq -r '.iconTheme   // "Papirus-Dark"' "$RICE/pill.json")
+    COR_PASTA=$(jq -r '.folderColor // ""'           "$RICE/pill.json")
+  fi
+  [[ -z $BASE_ICO  || $BASE_ICO  == null ]] && BASE_ICO=Papirus-Dark
+  [[ $COR_PASTA == null || $COR_PASTA == auto ]] && COR_PASTA=""
+
+  # Sem cor fixada pelo usuário, manda a do tema.
+  [[ -z $COR_PASTA ]] && COR_PASTA="${PASTAS:-}"
+
+  # "PraXe" não é uma escolha de tema base — é o que ESTE script gera.
+  # Vê-lo em iconTheme significa apenas que a última coisa aplicada foi a
+  # nossa; não é motivo para parar de recolorir.
+  if [[ $FIXOS == true && $BASE_ICO != Papirus-Dark \
+        && $BASE_ICO != Papirus && $BASE_ICO != PraXe ]]; then
+    ICONES=$BASE_ICO
+  elif [[ -n $COR_PASTA ]] && [[ -d /usr/share/icons/Papirus-Dark ]] \
+       && command -v rice-folders >/dev/null 2>&1; then
+    rice-folders "$COR_PASTA" >/dev/null 2>&1 && ICONES=PraXe
+  else
+    ICONES=$BASE_ICO
+  fi
+
+  mkdir -p "$HOME/.config/hypr" "$HOME/.config/rice/shell" \
+           "$HOME/.config/fuzzel"
+
+  # ── Transparência ────────────────────────────────────────────
+  # Desligada por padrão: é gosto, e ligar sozinho é decidir pelo
+  # usuário. Vive no pill.json porque quem a controla é o painel.
+  local PILL="$RICE/pill.json"
+  local TRANSP=false OPAC=1.0 OPAC_PAINEL=1.0
+  if [[ -f $PILL ]] && command -v jq >/dev/null 2>&1; then
+    TRANSP=$(jq -r '.transparencia // false' "$PILL")
+    if [[ $TRANSP == true ]]; then
+      OPAC=$(jq -r '.opacidadeJanelas // 0.94' "$PILL")
+      OPAC_PAINEL=$(jq -r '.opacidadePaineis // 0.90' "$PILL")
+    fi
+  fi
+
+  # Os menus (fuzzel) usam alfa embutido na cor, em hex. Seguem a
+  # opacidade dos PAINÉIS, não a das janelas: eles são superfície da
+  # barra, não aplicativo — e destoariam da island se usassem o outro
+  # valor. Desligada, ficam opacos de verdade (ff).
+  # Decoração das janelas, também vinda do painel.
+  # VIVIDO nasce em 25, e não em 0, de propósito: o realce faz parte da
+  # cor padrão do sistema. Sem ele o painel VA entrega uma imagem
+  # correta porém apagada, e é essa que pareceria "errada".
+  local BORDA=1 ARRED=10 GAPS_IN=4 GAPS_OUT=10 VIVIDO=25
+  if [[ -f $PILL ]] && command -v jq >/dev/null 2>&1; then
+    BORDA=$(jq -r '.bordaJanela   // 1'  "$PILL")
+    ARRED=$(jq -r '.arredJanela   // 10' "$PILL")
+    GAPS_IN=$(jq -r '.gapsIn      // 4'  "$PILL")
+    GAPS_OUT=$(jq -r '.gapsOut    // 10' "$PILL")
+    VIVIDO=$(jq -r '.vivido       // 25' "$PILL")
+  fi
+
+  local ALFA_MENU=ff
+  [[ $TRANSP == true ]] && ALFA_MENU=$(awk -v o="${OPAC_PAINEL:-0.90}" \
+    'BEGIN{ printf "%02x", int(o * 255 + 0.5) }')
+
+  # ── A barra (Quickshell): paleta em arquivo ──────────────────
+  # Vai como JSON, e não como Theme.qml, para a barra reler AO VIVO.
+  # Reescrever o .qml obrigava a reiniciar o processo — o que fazia
+  # qualquer painel aberto sumir no meio da troca de tema.
+  cat > "$RICE/theme.json" <<EOF
+{
+  "nome": "$NAME",
+  "bg": "#$BG", "bgAlt": "#$BG_ALT", "fg": "#$FG",
+  "muted": "#$MUTED", "dim": "#$DIM",
+  "accent": "#$ACCENT", "accent2": "#$ACCENT2",
+  "ok": "#$OK", "warn": "#$WARN", "err": "#$ERR",
+  "aviso": "$( [[ -n ${AVISO:-} ]] && echo "#$AVISO" )",
+  "fontFamily": "$FONT",
+  "fontSize": $FONT_SIZE
+}
+EOF
+
+  # ── Hyprland: bordas e groupbar ──────────────────────────────
+  cat > "$HOME/.config/hypr/colors.lua.novo" <<EOF
+-- Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+-- Para mudar as cores, edite $THEMES/$theme.sh
+return {
+  bg              = "rgb($BG)",
+  fg              = "rgb($FG)",
+  accent          = "rgb($ACCENT)",
+  active_border   = { colors = { "rgba(${ACCENT}ee)", "rgba(${ACCENT2}ee)" }, angle = 45 },
+  inactive_border = "rgba(${DIM}55)",
+  group_active    = "rgba(${ACCENT}40)",
+  group_inactive  = "rgba(${BG_ALT}90)",
+  group_text      = "rgb($FG)",
+  group_text_dim  = "rgba(${FG}90)",
+}
+EOF
+  # mv é atômico no mesmo sistema de arquivos. `cat >` trunca ANTES de
+  # escrever: se o Hyprland recarregar nessa fresta, ele lê um arquivo
+  # vazio, o require devolve `true` em vez da tabela, e aparece o
+  # "attempting to index a boolean" no meio da troca de tema.
+  mv -f "$HOME/.config/hypr/colors.lua.novo" "$HOME/.config/hypr/colors.lua"
+
+  # ── Hyprland: opacidade das janelas ──────────────────────────
+  # Arquivo separado e sempre presente (mesmo desligado, com opacidade
+  # 1.0): assim o hyprland.lua pode dar require incondicional e não
+  # quebra quando a transparência nunca foi ligada.
+  #
+  # O terminal fica de fora da regra geral porque quem cuida dele é o
+  # background_opacity do próprio kitty — aplicar os dois multiplica as
+  # opacidades e o resultado fica lavado demais para ler.
+  cat > "$HOME/.config/hypr/opacity.lua.novo" <<EOF
+-- Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+-- Controlado pelo painel de aparência: rice-pill set transparencia true
+return {
+  ativa    = $TRANSP,
+  ativo    = $OPAC,
+  inativo  = $(awk -v o="$OPAC" 'BEGIN{ printf "%.2f", (o >= 1 ? 1 : o - 0.06) }'),
+}
+EOF
+  mv -f "$HOME/.config/hypr/opacity.lua.novo" "$HOME/.config/hypr/opacity.lua"
+
+  # ── Hyprland: espessura de borda, arredondamento e espaços ───
+  # Mesma lógica do opacity.lua: sempre existe, com os padrões quando
+  # nada foi escolhido, para o require não precisar de guarda.
+  cat > "$HOME/.config/hypr/decor.lua.novo" <<EOF
+-- Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+-- Controlado pelo painel de aparência, aba Sistema.
+return {
+  borda    = $BORDA,
+  arred    = $ARRED,
+  gaps_in  = $GAPS_IN,
+  gaps_out = $GAPS_OUT,
+  -- Caminho do shader de realce de cor, ou "" quando desligado.
+  -- A intensidade mora dentro do próprio .frag; aqui só se diz se ele
+  -- entra ou não. Ver rice-vivido.
+  shader   = "$( [[ ${VIVIDO:-0} -gt 0 && -f $HOME/.config/hypr/shaders/vivido.frag ]] \
+                 && echo "$HOME/.config/hypr/shaders/vivido.frag" )",
+}
+EOF
+  mv -f "$HOME/.config/hypr/decor.lua.novo" "$HOME/.config/hypr/decor.lua"
+
+  # ── fuzzel: launcher e motor dos menus ───────────────────────
+  #
+  # As medidas daqui NÃO são escolhidas no olho: são as mesmas do
+  # painel do lançador da island (shell/Launcher.qml), para que
+  # SUPER+ALT+ESPAÇO e SUPER+ESPAÇO leiam como a mesma peça de
+  # software. Cada número abaixo diz de onde saiu.
+  #
+  # O que o fuzzel NÃO consegue imitar, e por isso não se tenta:
+  # linha de duas alturas (nome + descrição), o traço de acento à
+  # esquerda do item selecionado e o separador sob a busca. São
+  # limites do programa, não decisões de estilo.
+  cat > "$HOME/.config/fuzzel/fuzzel.ini" <<EOF
+# Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+# Modelo em: ~/.local/bin/rice-theme
+
+font=$FONT:size=$FONT_SIZE
+dpi-aware=auto
+prompt="   "
+icon-theme=breeze
+terminal=kitty -e
+layer=overlay
+lines=10
+width=40
+# Margem do painel do lançador: ColumnLayout.anchors.margins = 14.
+horizontal-pad=14
+vertical-pad=14
+# Respiro entre a busca e a lista: ColumnLayout.spacing = 10.
+inner-pad=10
+# A linha do lançador tem 42px porque empilha nome + descrição. Aqui
+# a linha é de uma altura só, então vale os 42 menos a segunda linha
+# (fontSize-2 mais entrelinha, ~16px) = 26. Era 28 no olho.
+line-height=26
+match-mode=fzf
+filter-desktop=yes
+launch-prefix=uwsm app --
+
+[border]
+# 1px é o mínimo do fuzzel; o que dá o ar discreto é a COR quase
+# transparente lá embaixo, não a espessura.
+width=1
+# 24 = o raio da island ABERTA (surface.raioMaximo com bar.expandido).
+# Estava em 14 para diferenciar menu de barra, mas a hierarquia que se
+# quer aqui é a oposta: o menu é o mesmo painel, em outro lugar.
+radius=24
+# Atenção: esta chave só é aceita na seção [border], não em [main].
+# 8 = o raio da linha da lista do lançador.
+selection-radius=8
+
+[colors]
+background=${BG}${ALFA_MENU}
+text=${FG}ff
+prompt=${ACCENT}ff
+placeholder=${MUTED}ff
+input=${FG}ff
+match=${ACCENT}ff
+# Linha selecionada: elevação neutra. O dourado fica só nas LETRAS
+# que casaram com a busca — é a informação que importa destacar.
+#
+# Sai do FG a 10% (0x1a), que é exatamente o que o lançador usa na
+# linha selecionada: Qt.rgba(colFg.r, colFg.g, colFg.b, 0.10).
+#
+# Era BG_ALT opaco. Em Samurai os dois quase coincidem (#2e2e30 contra
+# #201f1d compostos sobre o fundo), então a mudança quase não aparece
+# AQUI — o ganho é nos outros temas: BG_ALT é uma casa própria da
+# paleta e não acompanha o FG, então em Nord e Everforest a linha
+# selecionada do menu destoava da do lançador. Derivando do FG, as
+# duas passam a ser a mesma cor em todos os sete temas.
+selection=${FG}1a
+selection-text=${FG}ff
+selection-match=${ACCENT}ff
+border=${FG}14
+counter=${MUTED}ff
+EOF
+
+  # ── hyprlock: tela de bloqueio ───────────────────────────────
+  #
+  # O fundo é o PAPEL DE PAREDE, e não `path = screenshot`. Screenshot
+  # congela o que estava na tela no instante do bloqueio — inclusive
+  # conversa, e-mail e senha à mostra. Borrado ajuda pouco: o layout
+  # continua reconhecível e o conteúdo, às vezes, legível.
+  local PAPEL
+  PAPEL=$(grep -m1 '^wallpaper' "$HOME/.config/hypr/hyprpaper.conf" 2>/dev/null |
+          sed 's/^wallpaper *= *,//')
+  [[ -f ${PAPEL:-} ]] || PAPEL=""
+
+  # ── Cache do fundo do bloqueio ───────────────────────────────
+  #
+  # O hyprlock decodifica a imagem e sobe para a GPU ANTES do primeiro
+  # quadro — e a sessão já está trancada nesse meio-tempo. A tela congela
+  # no último frame, sem nenhum sinal, até ele conseguir desenhar. É o
+  # travamento que se sente ao clicar em bloquear no notch.
+  #
+  # Medido nesta máquina, só o custo de decodificar:
+  #     papel original PNG 5160x2159 .... 16,4 MB .. 314 ms
+  #     JPEG na resolução da tela ........ 1,8 MB ... 60 ms
+  #     JPEG a 1/4 da resolução .......... 133 kB .... 8 ms
+  #
+  # É 1/4 da resolução, e não a resolução cheia, porque o hyprlock passa
+  # TRÊS PASSES DE BLUR por cima disto: guardar detalhe na origem é
+  # trabalho para jogar fora logo em seguida. O hyprlock amplia de volta,
+  # e a ampliação some dentro do próprio borrão.
+  #
+  # Não é chute — foi medido. Comparando em CIELAB a origem cheia borrada
+  # contra a origem 1/4 ampliada e borrada igual:
+  #     ΔE médio 0,21 · p95 0,76 · máximo 2,20
+  # com o limiar de percepção em ~2,3. Ou seja: o pior pixel da imagem
+  # está no limite do que o olho distingue, e a média está 10x abaixo.
+  #
+  # JPEG e não PNG pelo mesmo motivo: artefato de compressão não sobrevive
+  # a três blurs. É o raro caso em que perder informação não custa nada.
+  #
+  # `-nt` para só regerar quando o papel muda: sem isso, toda troca de
+  # tema pagaria ~1,2 s de ImageMagick para produzir o arquivo idêntico.
+  local CACHE=""
+  if [[ -n $PAPEL ]] && command -v magick >/dev/null 2>&1; then
+    CACHE="$HOME/.cache/rice/hyprlock-fundo.jpg"
+
+    # A validade do cache é medida pela ORIGEM, não por data de arquivo.
+    #
+    # Comparar datas (`$PAPEL -nt $CACHE`) parece o idiomático e está
+    # ERRADO aqui: papel de parede é arquivo baixado, e a data dele é de
+    # quando foi salvo no disco — não de quando você o escolheu. Todos os
+    # papéis desta máquina são de 5 e 6 de agosto; qualquer cache gerado
+    # depois disso é "mais novo" que TODOS eles. Trocar de tema não
+    # regeraria nada e a tela de bloqueio ficaria presa no papel antigo,
+    # enquanto o resto do rice trocava de cor. Um bloqueio que não segue o
+    # tema é justamente o que o rice inteiro existe para não fazer.
+    #
+    # A assinatura abaixo muda quando o CAMINHO muda (troca de tema) e
+    # também quando o arquivo muda de conteúdo (papel reeditado no mesmo
+    # caminho), que são as duas formas de o cache ficar velho.
+    local ORIGEM="$HOME/.cache/rice/hyprlock-fundo.origem"
+    local ASSIN="$PAPEL|$(stat -c '%Y|%s' "$PAPEL" 2>/dev/null)"
+
+    if [[ ! -f $CACHE || $(cat "$ORIGEM" 2>/dev/null) != "$ASSIN" ]]; then
+      local RES ALVO
+      RES=$(hyprctl monitors 2>/dev/null | grep -m1 -oE '[0-9]+x[0-9]+@' | tr -d '@')
+      [[ -n ${RES:-} ]] || RES=3440x1440
+      # O recorte é feito na PROPORÇÃO da tela e só depois reduzido, para
+      # o enquadramento sair igual ao do papel de parede — reduzir antes
+      # de recortar mudaria o que fica de fora.
+      ALVO="$(( ${RES%x*} / 4 ))x$(( ${RES#*x} / 4 ))"
+      mkdir -p "$(dirname "$CACHE")"
+      # Falhou o recorte? Cai para o papel original: bloqueio lento é
+      # incômodo, bloqueio sem fundo é susto.
+      if magick "$PAPEL" -resize "${RES}^" -gravity center -extent "$RES" \
+                -resize "$ALVO" -quality 92 "$CACHE" 2>/dev/null; then
+        # A assinatura só é gravada DEPOIS do sucesso. Gravar antes faria
+        # uma conversão que falhou parecer cache válido, e o erro só
+        # apareceria na próxima vez que você bloqueasse a tela.
+        printf '%s' "$ASSIN" > "$ORIGEM"
+      else
+        rm -f "$CACHE" "$ORIGEM"
+        CACHE="$PAPEL"
+      fi
+    fi
+  fi
+  [[ -f ${CACHE:-} ]] || CACHE="$PAPEL"
+
+  cat > "$HOME/.config/hypr/hyprlock.conf" <<EOF
+# Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+# Modelo em: ~/.local/bin/rice-theme
+#
+# As cores saem da paleta do tema atual, então o bloqueio acompanha o
+# rice sem nenhum passo extra.
+
+\$font = $FONT
+\$fonteApp = $FONT_APP
+
+general {
+    hide_cursor = true
+    ignore_empty_input = true
+    # Sem \`grace\` aqui: essa opção não existe em general nesta versão do
+    # hyprlock e faz o config inteiro acusar erro. O período de tolerância
+    # vai pela linha de comando, no autostart.lua.
+
+    # Desenha o fundo SEM esperar os recursos terminarem de carregar.
+    # É a outra metade do conserto do travamento: mesmo com o cache
+    # leve, o padrão do hyprlock é segurar o primeiro quadro até tudo
+    # estar pronto — e segurar o primeiro quadro com a sessão já
+    # trancada é exatamente o que se lê como "travou".
+    immediate_render = true
+}
+
+animations {
+    enabled = true
+    bezier = suave, 0.23, 1, 0.32, 1
+    animation = fadeIn, 1, 4, suave
+    animation = fadeOut, 1, 4, suave
+    animation = inputFieldDots, 1, 2, linear
+}
+
+background {
+    monitor =
+    $( [[ -n $CACHE ]] && echo "path = $CACHE" || echo "color = rgb($BG)" )
+    blur_passes = 3
+    blur_size = 7
+    noise = 0.011
+    # Escurecer o papel é para tirá-lo da disputa pela atenção, não para
+    # apagá-lo. A combinação anterior (contrast 0.88 / brightness 0.32,
+    # sob véu de 72%) passou desse ponto: medindo o papel em uso, a parte
+    # escura e a parte clara da MESMA imagem chegavam à tela separadas por
+    # ΔE 5.2 — quase um retângulo liso. Pagava-se o custo de carregar uma
+    # fotografia para não ver fotografia nenhuma.
+    #
+    # Com brightness 0.45 e o véu em 55% essa distância vai a ΔE 15.5: a
+    # imagem volta a ter forma, e continua recuada o bastante para o
+    # relógio manter 10.5:1 de contraste até no papel mais claro da pasta.
+    #
+    # O contraste volta a 1.0 porque abaixar os dois de uma vez era o que
+    # colava as sombras no preto. Quem recua a imagem é o véu, que é
+    # uniforme; o contraste do papel só destruía a informação dele.
+    contrast = 1.0
+    brightness = 0.45
+    vibrancy = 0.15
+    vibrancy_darkness = 0.4
+}
+
+# Véu na cor do tema por cima do papel borrado. É ele que faz o
+# bloqueio pertencer ao rice em vez de ser "um blur qualquer".
+#
+# Desceu de 0xb8 (72%) para 0x8c (55%). O véu é quem recua a imagem, e
+# empilhá-lo com brilho baixo estava contando a mesma coisa duas vezes:
+# o resultado somava para preto e levava a fotografia junto.
+#
+# 55% é o piso: abaixo disso o papel volta a competir com o campo de
+# senha, que é justamente o que o escurecimento existe para evitar.
+background {
+    monitor =
+    color = rgba(${BG}8c)
+}
+
+# ── Por que NÃO existe mais um cartão aqui ───────────────────
+#
+# Havia um \`shape\` de 460x330 atrás do bloco, com borda, três passes de
+# sombra e a promessa de dar "uma base de contraste constante".
+#
+# Ele não fazia nada disso. Medido na tela: o cartão (BG a 35%) sobre o
+# véu (BG a 72%) chegava separado do próprio fundo por ΔE 0.9, e o campo
+# de senha sobre o cartão por ΔE 1.0 — ambos ABAIXO do limiar de
+# percepção (~2.3 em ΔE76). Três camadas de preto sobre preto, das quais
+# só as bordas de 1px eram visíveis: o desenho inteiro se sustentava no
+# contorno, e o miolo era uma mancha morta.
+#
+# A saída não é empilhar mais uma camada e sim tirar as que não fazem
+# trabalho. Quem separa a interface do papel agora é o próprio véu (que
+# é uniforme e vale para a tela toda) e o campo de senha, que ficou
+# CLARO em vez de escuro — ver o \`inner_color\` mais abaixo.
+#
+# Se um dia o bloco voltar a precisar de casa, o teste é este: medir o
+# ΔE da peça contra o que está atrás dela. Menos que ~3 e ela não existe
+# para o olho, só para o arquivo de configuração.
+
+# ── Relógio ──────────────────────────────────────────────────
+#
+# O conjunto relógio → data → usuário → traço → campo é UM bloco, e a
+# distância entre as peças cresce junto com a hierarquia: pouco espaço
+# dentro de cada dupla (relógio/data, usuário/traço), mais espaço entre
+# as duplas. É isso que faz o olho ler como grupo em vez de cinco coisas
+# soltas — e é o que permite encolher tudo sem a tela virar uma pilha.
+label {
+    monitor =
+    text = \$TIME
+    font_size = 72
+    font_family = \$font
+    color = rgb($FG)
+    # 162 e não 158: a data ficava encostada na base dos algarismos.
+    # A folga entre as duas tem que ser MENOR que a folga até o usuário
+    # (a hierarquia do bloco) e ainda assim existir — 72px de altura de
+    # fonte descem mais do que a posição sugere.
+    position = 0, 162
+    halign = center
+    valign = center
+
+    # Sem sombra. Ela entrou quando o fundo era o papel cru e as hastes
+    # finas dos números se perdiam nas partes claras da imagem; com o véu
+    # em 55% isso deixou de acontecer — o relógio marca de 10.5:1 (papel
+    # mais claro da pasta) a 14.9:1 (o mais escuro), e nos dois casos já
+    # passa folgado o piso de 7:1 que se pede para texto.
+    #
+    # Sombra sob tipografia que já tem contraste não some com o problema:
+    # ela engorda a letra e suja a borda dos algarismos.
+}
+
+# O formato sai do DICIONÁRIO e não cravado aqui.
+#
+# Estava \`%A, %d de %B\` — com o "de" em português no meio de nomes que
+# o \`date\` escreve no idioma do locale. Numa sessão em inglês isso
+# rendia "Saturday, 09 de August", meio em cada língua. Cada idioma tem
+# a sua ordem (em inglês o mês vem antes do dia) e a sua preposição,
+# então isso é tradução, não formatação.
+label {
+    monitor =
+    text = cmd[update:60000] date +"$(txt lock.date.format)"
+    font_size = 14
+    font_family = \$fonteApp
+    color = rgb($MUTED)
+    position = 0, 110
+    halign = center
+    valign = center
+}
+
+# ── Quem está entrando ───────────────────────────────────────
+label {
+    monitor =
+    text = \$USER
+    font_size = 13
+    font_family = \$fonteApp
+    color = rgb($FG)
+    position = 0, 46
+    halign = center
+    valign = center
+}
+
+# Traço de acento acima do campo. Acento MARCA, não preenche: é a
+# única peça colorida da tela, e por isso ela guia o olho até onde
+# se digita.
+#
+# Encolhe junto com o campo: um traço de 46 sobre um campo de 280 já
+# não lê como marca do campo, e sim como enfeite solto.
+shape {
+    monitor =
+    size = 38, 2
+    color = rgb($ACCENT)
+    rounding = 1
+    position = 0, 22
+    halign = center
+    valign = center
+}
+
+# ── Senha ────────────────────────────────────────────────────
+#
+# 280x42: cabe folgado uma senha longa em mascarado e continua sendo
+# um alvo de clique confortável. O \`rounding\` desce junto com a altura
+# — 12 num campo de 42 já começa a parecer cápsula.
+# O \`rounding\` agora é a METADE DA ALTURA — cápsula inteira, e não
+# mais o retângulo de cantos suaves.
+#
+# A cápsula é a forma que o rice já usa em todo lugar: a barra é uma,
+# a área de trabalho ativa é uma, o menu tem o mesmo raio. O bloqueio
+# era a única tela do sistema que não falava essa língua.
+input-field {
+    monitor =
+    size = 300, 46
+    outline_thickness = 1
+    rounding = 23
+
+    # O campo é a peça mais importante da tela e era a mais invisível.
+    #
+    # Primeiro foi BG_ALT (um cinza chapado, mancha morta). A correção
+    # seguinte trocou por BG a 72% — "um poço de escuridão" — e foi pior:
+    # escuro sobre escuro, ΔE 1.0 contra o que estava atrás. Só a borda
+    # de 1px dizia onde clicar.
+    #
+    # O erro nas duas vezes foi procurar a resposta no ESCURO. Num fundo
+    # escuro quem lê como superfície é a luz: FG a 10% deixa o campo
+    # entre ΔE 8.5 e 10.0 contra o fundo nos quatro papéis medidos (do
+    # mais escuro ao mais claro da pasta) — bem acima do limiar de ~2.3 e
+    # ainda assim discreto, longe do retângulo chapado do BG_ALT.
+    #
+    # Derivar do FG e não ter cor própria é o que mantém isso estável nos
+    # sete temas: é sempre "a cor do texto, quase apagada", e não um tom
+    # escolhido a dedo que num tema fica bom e noutro briga.
+    inner_color = rgba(${FG}1a)
+
+    # A borda sobe junto (era FG a 12%). Sobre um campo agora mais claro,
+    # 12% encostava no próprio campo; a 20% ela fecha a cápsula com ΔE 14
+    # a 18 contra o miolo, que é o suficiente para a forma existir sem
+    # virar contorno desenhado.
+    outer_color = rgba(${FG}33)
+
+    check_color = rgba(${ACCENT}ff)
+    fail_color  = rgba(${ERR}ff)
+
+    font_color  = rgb($FG)
+    font_family = \$fonteApp
+
+    placeholder_text = <span foreground="##$MUTED">$(txt lock.password)</span>
+    fail_text        = <span foreground="##$ERR">\$FAIL</span>
+    check_text       = <span foreground="##$ACCENT">$(txt lock.checking)</span>
+
+    fade_on_empty = false
+    dots_size     = 0.26
+    dots_spacing  = 0.36
+    dots_center   = true
+
+    # Sem sombra, pelo mesmo motivo do cartão: ela existia para destacar
+    # uma peça escura de um fundo escuro. Agora o campo é mais CLARO que
+    # o fundo e se destaca sozinho — a sombra só somaria uma auréola suja
+    # em volta da cápsula.
+
+    position = 0, -22
+    halign = center
+    valign = center
+}
+
+# ── Rodapé ───────────────────────────────────────────────────
+#
+# Era um lema fixo ("PraXe OS · ninguém manda, todos constroem").
+# Frase é decoração: diz a mesma coisa todo dia e, depois da segunda
+# semana, ninguém lê. O rodapé é o único espaço livre da tela — vale
+# mais dando um dado que muda e que se consulta de verdade: que máquina
+# é esta, que sistema roda, e há quanto tempo está de pé.
+#
+# Quem monta a linha é o rice-sysinfo, com a nota sobre o que NUNCA
+# entra aqui (nada de rede: tela bloqueada é conteúdo público).
+#
+# A atualização é de minuto em minuto, o mesmo passo do relógio: o
+# único campo que anda é o tempo ligado, e ele é contado em minutos.
+label {
+    monitor =
+    # Caminho absoluto, expandido AQUI pelo bash: o \$HOME de dentro do
+    # hyprlock.conf seria lido como variável de config do hyprlock (as
+    # do tipo \$font, logo no topo do arquivo), não como variável de
+    # ambiente — e uma variável de config que não existe fica na string.
+    text = cmd[update:60000] $HOME/.local/bin/rice-sysinfo
+    font_size = 11
+    font_family = \$fonteApp
+    # DIM deixava a linha quase invisível sobre o papel escurecido, o
+    # que servia para um lema (dava para ignorar) e não serve para um
+    # dado que se quer LER. MUTED a 70% é discreto e legível.
+    color = rgba(${MUTED}b3)
+    position = 0, 26
+    halign = center
+    valign = bottom
+}
+EOF
+
+  # ── kitty (terminal) ─────────────────────────────────────────
+  # Fica num arquivo à parte incluído pelo kitty.conf, para não
+  # sobrescrever ajustes de fonte/teclas que você faça lá.
+  mkdir -p "$HOME/.config/kitty"
+  cat > "$HOME/.config/kitty/colors.conf" <<EOF
+# Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+font_family           $FONT_TERM
+font_size             $TERM_FONT_SIZE
+background_opacity    $OPAC
+
+foreground            #$FG
+background            #$BG
+selection_foreground  #$BG
+selection_background  #$ACCENT
+cursor                #$ACCENT
+cursor_text_color     #$BG
+url_color             #$ACCENT2
+
+active_border_color   #$ACCENT
+inactive_border_color #$DIM
+active_tab_foreground #$BG
+active_tab_background #$ACCENT
+inactive_tab_foreground #$MUTED
+inactive_tab_background #$BG_ALT
+
+color0  #$BG
+color8  #$MUTED
+color1  #$ERR
+color9  #$ERR
+color2  #$OK
+color10 #$OK
+color3  #$WARN
+color11 #$WARN
+color4  #$ACCENT
+color12 #$ACCENT
+color5  #$ACCENT2
+color13 #$ACCENT2
+color6  #$ACCENT
+color14 #$ACCENT2
+color7  #$FG
+color15 #$FG
+EOF
+
+  # Garante o include no kitty.conf sem duplicar
+  local kconf="$HOME/.config/kitty/kitty.conf"
+  touch "$kconf"
+  grep -q "^include colors.conf" "$kconf" 2>/dev/null || {
+    printf '\n# Cores do tema atual (geradas pelo rice-theme)\ninclude colors.conf\n' >> "$kconf"
+  }
+
+  # Terminais já abertos recarregam a config com SIGUSR1
+  pkill -USR1 -x kitty 2>/dev/null || true
+
+  # ── fastfetch: o cartão de visitas do terminal ───────────────
+  #
+  # As cores são ÍNDICES da paleta ANSI, não truecolor, e isso é
+  # deliberado: cor indexada é resolvida pelo terminal na hora de
+  # desenhar. Quando o kitty recarrega a paleta (SIGUSR1 logo acima),
+  # o fastfetch JÁ IMPRESSO num terminal aberto muda de cor junto.
+  # Com truecolor a cor fica cravada na saída e só o próximo terminal
+  # apareceria com o tema novo.
+  #
+  #   blue    -> color4/12  = ACCENT
+  #   magenta -> color5/13  = ACCENT2
+  #   90      -> color8     = MUTED (preto brilhante; "8" sozinho e OCULTAR)
+  mkdir -p "$HOME/.config/fastfetch"
+  cat > "$HOME/.config/fastfetch/config.jsonc" <<EOF
+// Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+// Modelo em: ~/.local/bin/rice-theme
+{
+  "\$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "builtin",
+    "source": "arch_small",
+    "color": { "1": "blue", "2": "blue" },
+    // top 1 + o "break" inicial dos modulos = as duas colunas
+    // comecam na MESMA linha, com uma linha vazia acima de tudo.
+    "padding": { "top": 1, "left": 3, "right": 4 }
+  },
+  "display": { "disableLinewrap": true, "separator": "  " },
+  "modules": [
+    "break",
+    { "type": "os",       "key": "󰣇", "keyColor": "blue" },
+    { "type": "kernel",   "key": "󰌽", "keyColor": "blue" },
+    { "type": "wm",       "key": "󰍹", "keyColor": "blue" },
+    { "type": "cpu",      "key": "󰘚", "keyColor": "magenta", "showPeCoreCount": false },
+    { "type": "gpu",      "key": "󰢮", "keyColor": "magenta", "detectionMethod": "pci" },
+    { "type": "memory",   "key": "󰍛", "keyColor": "magenta" },
+    { "type": "command",  "key": "󰸌", "keyColor": "90",
+      "text": "printf '%s · %s' \"\$(cat \$HOME/.config/rice/current 2>/dev/null || echo padrao)\" \"\$(uptime -p | sed 's/^up //')\"" },
+    "break"
+  ]
+}
+EOF
+
+  # ── imv e mpv: o pouco que dá para tematizar neles ───────────
+  mkdir -p "$HOME/.config/imv" "$HOME/.config/mpv"
+
+  # O imv não tem tema; o que dá é o fundo e a cor do texto.
+  cat > "$HOME/.config/imv/config" <<EOF
+# Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+[options]
+background = $BG
+overlay_text_color = $FG
+overlay_background_color = $BG_ALT
+overlay_font = $FONT:$FONT_SIZE
+suppress_default_binds = false
+EOF
+
+  # No mpv só a OSD acompanha; o resto é vídeo.
+  cat > "$HOME/.config/mpv/mpv.conf" <<EOF
+# Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+osd-font=$FONT
+osd-font-size=$FONT_SIZE
+osd-color=#$FG
+osd-border-color=#$BG
+osd-bar-align-y=0.85
+osd-bar-h=2
+background=#$BG
+keep-open=yes
+EOF
+
+  # ── KDE (Dolphin e cia) ──────────────────────────────────────
+  # Toda a paleta dos apps Qt sai daqui. Quem lê este arquivo é o
+  # plasma-integration, ativado por QT_QPA_PLATFORMTHEME=kde em
+  # envs.lua — sem essa variável nenhum tema assume, porque o
+  # XDG_CURRENT_DESKTOP aqui é "Hyprland" e não "KDE".
+  # Formato: R,G,B decimal. Sem este bloco o Dolphin abre claro.
+  rgb() { printf '%d,%d,%d' "0x${1:0:2}" "0x${1:2:2}" "0x${1:4:2}"; }
+
+  cat > "$HOME/.config/kdeglobals" <<EOF
+# Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+[General]
+ColorScheme=Rice
+Name=Rice
+shadeSortColumn=true
+# Fontes do Qt. O formato tem 10 campos separados por vírgula:
+# família, tamanho, pixelSize, styleHint, peso, itálico, sublinhado,
+# tachado, largura fixa, raw. Só os dois primeiros interessam aqui.
+font=$FONT_APP,$APP_FONT_SIZE,-1,5,50,0,0,0,0,0
+menuFont=$FONT_APP,$APP_FONT_SIZE,-1,5,50,0,0,0,0,0
+toolBarFont=$FONT_APP,$APP_FONT_SIZE,-1,5,50,0,0,0,0,0
+smallestReadableFont=$FONT_APP,$((APP_FONT_SIZE-2)),-1,5,50,0,0,0,0,0
+# fixed é a monoespaçada do Qt: campo de código, terminal embutido.
+fixed=$FONT_TERM,$APP_FONT_SIZE,-1,5,50,0,0,0,0,0
+
+[WM]
+activeFont=$FONT_APP,$APP_FONT_SIZE,-1,5,50,0,0,0,0,0
+
+[Icons]
+Theme=$ICONES
+
+[KDE]
+LookAndFeelPackage=org.kde.breezedark.desktop
+widgetStyle=Breeze
+
+[Colors:Window]
+BackgroundNormal=$(rgb "$BG")
+BackgroundAlternate=$(rgb "$BG_ALT")
+ForegroundNormal=$(rgb "$FG")
+ForegroundInactive=$(rgb "$MUTED")
+ForegroundActive=$(rgb "$ACCENT")
+ForegroundLink=$(rgb "$ACCENT")
+ForegroundVisited=$(rgb "$ACCENT2")
+ForegroundNegative=$(rgb "$ERR")
+ForegroundNeutral=$(rgb "$WARN")
+ForegroundPositive=$(rgb "$OK")
+DecorationFocus=$(rgb "$ACCENT")
+DecorationHover=$(rgb "$ACCENT")
+
+[Colors:View]
+BackgroundNormal=$(rgb "$BG")
+BackgroundAlternate=$(rgb "$BG_ALT")
+ForegroundNormal=$(rgb "$FG")
+ForegroundInactive=$(rgb "$MUTED")
+ForegroundActive=$(rgb "$ACCENT")
+ForegroundLink=$(rgb "$ACCENT")
+ForegroundVisited=$(rgb "$ACCENT2")
+ForegroundNegative=$(rgb "$ERR")
+ForegroundNeutral=$(rgb "$WARN")
+ForegroundPositive=$(rgb "$OK")
+DecorationFocus=$(rgb "$ACCENT")
+DecorationHover=$(rgb "$ACCENT")
+
+[Colors:Button]
+BackgroundNormal=$(rgb "$BG_ALT")
+BackgroundAlternate=$(rgb "$DIM")
+ForegroundNormal=$(rgb "$FG")
+ForegroundInactive=$(rgb "$MUTED")
+ForegroundActive=$(rgb "$ACCENT")
+ForegroundNegative=$(rgb "$ERR")
+ForegroundNeutral=$(rgb "$WARN")
+ForegroundPositive=$(rgb "$OK")
+DecorationFocus=$(rgb "$ACCENT")
+DecorationHover=$(rgb "$ACCENT")
+
+[Colors:Selection]
+# Seleção em superfície neutra, mesma regra do GTK: o acento marca
+# (foco, borda), não preenche. Dourado sólido em área grande cansa.
+BackgroundNormal=$(rgb "$BG_ALT")
+BackgroundAlternate=$(rgb "$DIM")
+ForegroundNormal=$(rgb "$FG")
+ForegroundInactive=$(rgb "$MUTED")
+ForegroundActive=$(rgb "$ACCENT")
+ForegroundLink=$(rgb "$ACCENT")
+ForegroundNegative=$(rgb "$ERR")
+ForegroundNeutral=$(rgb "$WARN")
+ForegroundPositive=$(rgb "$OK")
+
+[Colors:Tooltip]
+BackgroundNormal=$(rgb "$BG_ALT")
+BackgroundAlternate=$(rgb "$BG")
+ForegroundNormal=$(rgb "$FG")
+DecorationFocus=$(rgb "$ACCENT")
+DecorationHover=$(rgb "$ACCENT")
+
+[Colors:Complementary]
+BackgroundNormal=$(rgb "$BG")
+BackgroundAlternate=$(rgb "$BG_ALT")
+ForegroundNormal=$(rgb "$FG")
+ForegroundInactive=$(rgb "$MUTED")
+ForegroundActive=$(rgb "$ACCENT")
+DecorationFocus=$(rgb "$ACCENT")
+DecorationHover=$(rgb "$ACCENT")
+
+[Colors:Header]
+BackgroundNormal=$(rgb "$BG_ALT")
+BackgroundAlternate=$(rgb "$BG")
+ForegroundNormal=$(rgb "$FG")
+ForegroundInactive=$(rgb "$MUTED")
+DecorationFocus=$(rgb "$ACCENT")
+DecorationHover=$(rgb "$ACCENT")
+
+[WM]
+activeBackground=$(rgb "$BG_ALT")
+activeForeground=$(rgb "$FG")
+inactiveBackground=$(rgb "$BG")
+inactiveForeground=$(rgb "$MUTED")
+EOF
+
+  # ── GTK 3 e 4 ────────────────────────────────────────────────
+  #
+  # Aqui vai SÓ cor, nenhum seletor. A lição veio do Omarchy: eles não
+  # escrevem CSS nenhum, só trocam color-scheme, gtk-theme e ícones, e
+  # deixam o libadwaita desenhar. Uma folha de estilo própria briga com
+  # o espaçamento e as sombras do design dele e o resultado fica pior —
+  # foi exatamente o que aconteceu com as 187 linhas que havia aqui.
+  for v in 3.0 4.0; do
+    mkdir -p "$HOME/.config/gtk-$v"
+    cat > "$HOME/.config/gtk-$v/settings.ini" <<EOF
+# Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+[Settings]
+gtk-theme-name=Adwaita-dark
+gtk-icon-theme-name=$ICONES
+gtk-font-name=$FONT_APP $APP_FONT_SIZE
+gtk-cursor-theme-name=breeze_cursors
+gtk-cursor-theme-size=24
+gtk-application-prefer-dark-theme=1
+EOF
+  done
+
+  # ── GTK 3: @define-color ─────────────────────────────────────
+  # O GTK3 não tem libadwaita e continua com a sintaxe de sempre.
+  cat > "$HOME/.config/gtk-3.0/gtk.css" <<EOF
+/* Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+ *
+ * Só cores. Nenhum seletor de propósito — ver comentário no rice-theme.
+ */
+@define-color accent_color       #$ACCENT;
+@define-color accent_bg_color    #$ACCENT;
+@define-color accent_fg_color    #$BG;
+@define-color window_bg_color    #$BG;
+@define-color window_fg_color    #$FG;
+@define-color view_bg_color      #$BG;
+@define-color view_fg_color      #$FG;
+@define-color headerbar_bg_color #$BG;
+@define-color headerbar_fg_color #$FG;
+@define-color sidebar_bg_color   #$BG_ALT;
+@define-color sidebar_fg_color   #$FG;
+@define-color card_bg_color      #$BG_ALT;
+@define-color card_fg_color      #$FG;
+@define-color popover_bg_color   #$BG_ALT;
+@define-color popover_fg_color   #$FG;
+@define-color dialog_bg_color    #$BG_ALT;
+@define-color dialog_fg_color    #$FG;
+@define-color destructive_color  #$ERR;
+@define-color success_color      #$OK;
+@define-color warning_color      #$WARN;
+@define-color error_color        #$ERR;
+EOF
+
+  # ── GTK 4 / libadwaita: VARIÁVEIS CSS ────────────────────────
+  #
+  # Este arquivo tinha a MESMA sintaxe do GTK3 acima, e era por isso que
+  # o Nautilus nunca acompanhava o tema — não por causa de cache, nem por
+  # precisar reabrir. Ele simplesmente ignorava o arquivo inteiro e
+  # desenhava o Adwaita de fábrica, que num tema escuro é um cinza
+  # azulado. Daí a queixa de "o Nautilus está azul": era o Adwaita puro,
+  # não o tema de outro rice.
+  #
+  # A libadwaita 1.6 trocou as cores nomeadas por CUSTOM PROPERTIES do
+  # CSS, e a 1.9 (a instalada aqui) não entende mais `@define-color`.
+  # Conferido na própria biblioteca:
+  #     strings /usr/lib/libadwaita-1.so.0 | grep -oE '^--[a-z-]+-color$'
+  # devolve --window-bg-color, --sidebar-bg-color e companhia; os nomes
+  # antigos sumiram.
+  #
+  # As variantes *-bg-color e *-fg-color vêm em par de propósito: definir
+  # só o fundo deixa o texto na cor do Adwaita, e a combinação pode sair
+  # ilegível quando o tema tem fundo claro.
+  cat > "$HOME/.config/gtk-4.0/gtk.css" <<EOF
+/* Gerado por rice-theme ($NAME). Não edite à mão: será sobrescrito.
+ *
+ * Variáveis CSS, e NÃO @define-color: a libadwaita 1.6+ abandonou as
+ * cores nomeadas. Ver o comentário no rice-theme antes de "consertar"
+ * isto de volta para a sintaxe antiga.
+ */
+:root {
+  --accent-color:        #$ACCENT;
+  --accent-bg-color:     #$ACCENT;
+  --accent-fg-color:     #$BG;
+
+  --window-bg-color:     #$BG;
+  --window-fg-color:     #$FG;
+  --view-bg-color:       #$BG;
+  --view-fg-color:       #$FG;
+
+  --headerbar-bg-color:  #$BG;
+  --headerbar-fg-color:  #$FG;
+
+  --sidebar-bg-color:    #$BG_ALT;
+  --sidebar-fg-color:    #$FG;
+  --secondary-sidebar-bg-color: #$BG_ALT;
+  --secondary-sidebar-fg-color: #$FG;
+
+  --card-bg-color:       #$BG_ALT;
+  --card-fg-color:       #$FG;
+  --popover-bg-color:    #$BG_ALT;
+  --popover-fg-color:    #$FG;
+  --dialog-bg-color:     #$BG_ALT;
+  --dialog-fg-color:     #$FG;
+  --thumbnail-bg-color:  #$BG_ALT;
+  --thumbnail-fg-color:  #$FG;
+
+  --destructive-color:   #$ERR;
+  --destructive-bg-color:#$ERR;
+  --destructive-fg-color:#$BG;
+  --success-color:       #$OK;
+  --success-bg-color:    #$OK;
+  --success-fg-color:    #$BG;
+  --warning-color:       #$WARN;
+  --warning-bg-color:    #$WARN;
+  --warning-fg-color:    #$BG;
+  --error-color:         #$ERR;
+  --error-bg-color:      #$ERR;
+  --error-fg-color:      #$BG;
+}
+EOF
+
+  # O libadwaita 1.9 aceita um acento nomeado via gsettings. Escolhemos
+  # o mais próximo do acento do tema pelo matiz, para os realces nativos
+  # dos apps GNOME combinarem sem CSS.
+  acento_nomeado() {
+    python3 - "$1" <<'PY'
+import sys, colorsys
+h = sys.argv[1]
+r, g, b = [int(h[i:i+2], 16) / 255 for i in (0, 2, 4)]
+mat, luz, sat = colorsys.rgb_to_hls(r, g, b)
+if sat < 0.12:
+    print("slate"); raise SystemExit
+graus = mat * 360
+faixas = [(20,"red"),(45,"orange"),(70,"yellow"),(160,"green"),
+          (200,"teal"),(260,"blue"),(300,"purple"),(340,"pink"),(361,"red")]
+for limite, nome in faixas:
+    if graus < limite:
+        print(nome); break
+PY
+  }
+
+  if command -v gsettings >/dev/null 2>&1; then
+    gi="gsettings set org.gnome.desktop.interface"
+    $gi color-scheme  "prefer-dark"                 2>/dev/null || true
+    $gi gtk-theme     "Adwaita-dark"                2>/dev/null || true
+    # O nome do tema de ícones não muda entre um tema e outro — é sempre
+    # "PraXe", só o conteúdo dele é reconstruído. E GTK e Qt só redesenham
+    # ícone quando o NOME muda. Sem passar por um nome intermediário, o
+    # Nautilus já aberto continuava mostrando a cor de pasta do tema
+    # ANTERIOR, e só acertava depois de ser fechado e reaberto.
+    [[ $ICONES == PraXe ]] && $gi icon-theme "Papirus-Dark" 2>/dev/null || true
+    $gi icon-theme    "$ICONES"                2>/dev/null || true
+    $gi accent-color  "$(acento_nomeado "$ACCENT")" 2>/dev/null || true
+    $gi font-name     "$FONT_APP $APP_FONT_SIZE"     2>/dev/null || true
+    $gi cursor-theme  "breeze_cursors"              2>/dev/null || true
+  fi
+
+  # ── Apps GTK já abertos ──────────────────────────────────────
+  #
+  # A paleta de um app libadwaita NÃO muda a quente — não há API para
+  # isso, e as três tentativas óbvias já foram descartadas por teste.
+  # O porquê inteiro está no cabeçalho do rice-gtk-reload; aqui basta
+  # saber que reiniciar o app é a única alavanca que existe.
+  #
+  # Ligado por padrão: sem isto o gerenciador de arquivos fica no tema em
+  # que subiu enquanto todo o resto da tela já trocou, que é pior do que
+  # o piscar do reinício. O rice-gtk-reload reabre as janelas onde
+  # estavam, então o custo é um piscar e não a perda da navegação.
+  #
+  # Para desligar:  rice-pill set reiniciarApps false
+  local REINICIAR=true
+  [[ -f $PILL ]] && command -v jq >/dev/null 2>&1 \
+    && REINICIAR=$(jq -r '.reiniciarApps // true' "$PILL")
+
+  if [[ $REINICIAR == true ]] && command -v rice-gtk-reload >/dev/null 2>&1; then
+    # Em segundo plano: reiniciar app é lento (o `-q` espera o processo
+    # sair de verdade), e travar a troca de tema por causa disso deixaria
+    # a barra e o papel esperando o gerenciador de arquivos.
+    setsid -f rice-gtk-reload >/dev/null 2>&1 || true
+  fi
+
+  echo "$theme" > "$CURRENT"
+
+  # ── Recarrega o que estiver rodando ──────────────────────────
+  hyprctl reload >/dev/null 2>&1 || true
+
+  # A pill lê o Theme.qml na subida, então precisa reiniciar para trocar de cor
+  # Nada de reiniciar a barra: ela observa o theme.json e repinta
+  # sozinha. Só sobe se, por algum motivo, não estiver rodando.
+  pgrep -x qs >/dev/null 2>&1 || setsid -f qs -p "$RICE/shell" >/dev/null 2>&1 || true
+
+  notify-send -t 2500 "$(txt notif.app.theme)" "$NAME" 2>/dev/null || true
+  echo "$(txt cli.theme.applied "$NAME")"
+}
+
+# ── Interface ───────────────────────────────────────────────────
+case "${1:-menu}" in
+  list)
+    list_themes
+    ;;
+  current)
+    current_theme
+    ;;
+  set)
+    [[ -n ${2:-} ]] || die "$(txt cli.usage): rice-theme set <nome>"
+    apply "$2"
+    ;;
+  menu)
+    cur=$(current_theme)
+    choice=$(list_themes | fuzzel --dmenu --prompt "󰸌   " \
+      --placeholder "Escolher tema..." --lines 8 --width 32 \
+      --select "$cur") || exit 0
+    [[ -n $choice ]] && apply "$choice"
+    ;;
+  -h | --help | help)
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    die "comando desconhecido '$1'. Tente: rice-theme --help"
+    ;;
+esac

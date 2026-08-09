@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Perfis de cor da tela por jogo, via hyprshade.
+#
+#   rice-shader                 mostra o perfil em vigor
+#   rice-shader lista           lista os perfis disponíveis
+#   rice-shader <perfil>        aplica
+#   rice-shader off             volta ao vivido, o padrão do sistema
+#   rice-shader ciclo           passa para o próximo perfil de jogo
+#
+# Os perfis são .frag em ~/.config/hypr/shaders. O hyprshade lê essa pasta
+# sozinho, então criar um arquivo lá já o torna aplicável — não há lista
+# para manter em dois lugares.
+#
+# `off` volta ao VIVIDO e não a shader nenhum: o vivido é o padrão do
+# sistema (ver decor.lua e rice-vivido), e desligar de vez deixaria a tela
+# apagada, que é o estado que o rice existe para corrigir. Quem quiser
+# mesmo nenhum shader usa `hyprshade off`.
+#
+# NÃO sobrevive a `hyprctl reload`: o reload devolve o shader ao que está
+# no decor.lua. Isso é por decisão — ninguém recarrega o Hyprland no meio
+# de uma partida, e persistir exigiria reescrever o decor.lua a cada troca.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+SHADERS="$HOME/.config/hypr/shaders"
+PADRAO=vivido
+
+# Perfis de jogo = tudo menos o vivido e os utilitários que vêm com o
+# hyprshade. A ordem é a do ciclo, e é fixa de propósito: atalho de
+# teclado que muda de destino conforme o conteúdo da pasta é atalho que
+# ninguém decora.
+JOGOS=(lies-of-p breakpoint witcher3 rdr2 gtav alien-isolation)
+
+aviso() { notify-send -t 1800 "$(txt notif.app.screen)" "$1" 2>/dev/null || true; }
+
+existe() { [[ -f "$SHADERS/$1.frag" ]]; }
+
+atual() { hyprshade current 2>/dev/null || echo ""; }
+
+lista() {
+    local a; a=$(atual)
+    for j in "${JOGOS[@]}"; do
+        existe "$j" || continue
+        [[ $j == "$a" ]] && printf '* %s\n' "$j" || printf '  %s\n' "$j"
+    done
+    [[ $a == "$PADRAO" ]] && printf '* %s (%s)\n' "$PADRAO" "$(txt cli.shader.default)" \
+                          || printf '  %s (padrão)\n' "$PADRAO"
+}
+
+aplicar() {
+    local nome="$1"
+    existe "$nome" || { echo "rice-shader: $(txt cli.shader.noexist "$nome")" >&2; exit 1; }
+    hyprshade on "$nome" >/dev/null 2>&1
+
+    # O parser do Hyprland cospe o erro NA TELA, não no log. Checar aqui
+    # evita deixar um aviso vermelho pendurado sem pista do motivo.
+    local erros; erros=$(hyprctl configerrors 2>/dev/null | grep -v '^no errors' | head -3)
+    if [[ -n $erros ]]; then
+        echo "rice-shader: o Hyprland recusou o shader:" >&2
+        echo "$erros" >&2
+        hyprshade on "$PADRAO" >/dev/null 2>&1
+        aviso "$(txt notif.shader.refused)"
+        exit 1
+    fi
+
+    [[ $nome == "$PADRAO" ]] && aviso "$(txt notif.shader.default)" || aviso "$nome"
+    echo "$nome"
+}
+
+ciclo() {
+    local a i=0 prox
+    a=$(atual)
+    for i in "${!JOGOS[@]}"; do
+        [[ ${JOGOS[$i]} == "$a" ]] && { prox=${JOGOS[$(( (i + 1) % ${#JOGOS[@]} ))]}; break; }
+    done
+    aplicar "${prox:-${JOGOS[0]}}"
+}
+
+case "${1:-atual}" in
+    atual|"")  atual ;;
+    lista)     lista ;;
+    ciclo)     ciclo ;;
+    off)       aplicar "$PADRAO" ;;
+    *)         aplicar "$1" ;;
+esac

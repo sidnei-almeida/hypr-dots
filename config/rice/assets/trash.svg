@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!--
+    Lixeira — estado vazio.
+
+    Desenhada aqui em vez de puxada do tema de ícones porque o Qt desta
+    máquina não resolve ícones de contexto `places`/`status`: `user-trash`
+    e todos os nomes irmãos voltam vazios do iconPath, enquanto ícones de
+    aplicativo (que moram em hicolor/apps) resolvem normalmente. Trocar o
+    nome não adiantaria — o dock ficaria com o slot vazio em qualquer um.
+
+    Traço e não preenchimento: no tamanho do dock (~29px) uma silhueta
+    cheia vira mancha e não se lê como lata. O contorno mantém a forma
+    reconhecível.
+
+    Branco de propósito. Quem dá a cor é o MultiEffect no Dock.qml, que
+    preserva a luminância — partir do branco é o que garante que a cor
+    chegue limpa, sem a matiz do arquivo se misturando.
+  -->
+  <g fill="none" stroke="#ffffff" stroke-width="14"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- Alça -->
+    <path d="M100 52 v-8 a10 10 0 0 1 10-10 h36 a10 10 0 0 1 10 10 v8"/>
+    <!-- Tampa -->
+    <path d="M44 62 h168"/>
+    <!-- Corpo, levemente cônico como lata de verdade -->
+    <path d="M68 62 l10 142 a16 16 0 0 0 16 15 h68 a16 16 0 0 0 16-15 l10-142"/>
+    <!-- Ranhuras -->
+    <path d="M108 100 v78"/>
+    <path d="M148 100 v78"/>
+  </g>
+</svg>

@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# Monta um tema de ícones que herda o Papirus-Dark e só troca a COR DAS
+# PASTAS, usando as variantes que o próprio Papirus já traz.
+#
+#   rice-folders teal            monta o tema PraXe com pastas teal
+#   rice-folders teal aplicar    monta E passa a usar (GTK, Qt, gsettings)
+#   rice-folders cores           lista as cores disponíveis
+#
+# Montar e APLICAR são separados porque o rice-theme monta e depois
+# escreve os quatro arquivos ele mesmo, na mesma passada — aplicar aqui
+# no meio faria o trabalho duas vezes. Já o painel de aparência chama
+# este script sozinho, e para ele `aplicar` é obrigatório: sem isso o
+# clique na cor montava o tema e não trocava nada na tela.
+#
+# Por que um tema à parte, em vez de recolorir o Papirus instalado:
+# o papirus-folders mexe em /usr/share/icons, o que exige root e é
+# desfeito a cada atualização do pacote. Aqui nada é gerado nem pintado —
+# só apontamos para arquivos que já existem, dentro de um tema do
+# usuário. Atualizar o Papirus não desfaz nada.
+#
+# COMO FUNCIONA: o Papirus traz, para cada tamanho, ~78 pastas por cor
+# (folder-teal.svg, folder-teal-documents.svg, ...). Este script cria
+# links com o nome NEUTRO que os programas procuram (folder.svg,
+# folder-documents.svg) apontando para a variante colorida. O resto do
+# tema — todos os ícones de aplicativo — vem do Papirus-Dark por herança.
+#
+# O QUE ESTAVA ERRADO NA VERSÃO ANTERIOR, e vale não repetir:
+#   1. Declarava só 8 diretórios (16/32/48/64 e @2x). Faltavam 22x22,
+#      24x24, 96x96 e 128x128 — justo os que Nautilus e Dolphin pedem.
+#   2. Não criava link nenhum: o tema ficava com a estrutura de pastas
+#      vazia. Como um tema vazio ainda resolve por herança, ninguém
+#      percebia... até o dia em que o cache o fez resolver para NADA e os
+#      ícones sumiram da tela inteira.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+BASE=/usr/share/icons/Papirus-Dark
+DESTINO="$HOME/.local/share/icons/PraXe"
+COR="${1:-brown}"
+APLICAR="${2:-}"
+
+[[ -d $BASE ]] || { echo "rice-folders: $(txt cli.papirus.missing)" >&2; exit 1; }
+
+# ── Cores que o Papirus realmente oferece ────────────────────────────
+# Uma COR se distingue de um TIPO de pasta pela QUANTIDADE de variantes.
+#
+# `folder-teal.svg` e `folder-documents.svg` têm a mesma forma de nome, e
+# ambos têm família — existe `folder-teal-documents.svg` e também
+# `folder-documents-open.svg`. Então "tem variantes" não separa os dois.
+#
+# O que separa é quantas: uma cor cobre o catálogo inteiro (~67 variantes
+# por tamanho, uma para cada tipo de pasta), enquanto um tipo tem duas ou
+# três (ele mesmo e a versão aberta). O corte em 20 fica longe dos dois
+# extremos e não depende de manter uma lista de cores à mão, que
+# envelheceria a cada versão do Papirus.
+#
+# Sem isto, `rice-folders documents` era ACEITO e montava um tema onde
+# toda pasta do sistema virava ícone de documento.
+LIMIAR_COR=20
+
+cores_disponiveis() {
+    local f nome n
+    for f in "$BASE"/64x64/places/folder-*.svg; do
+        [[ -e $f ]] || continue
+        nome=$(basename "$f" .svg); nome=${nome#folder-}
+        [[ $nome == *-* ]] && continue
+        n=$(compgen -G "$BASE/64x64/places/folder-$nome-*.svg" 2>/dev/null | wc -l)
+        (( n >= LIMIAR_COR )) && echo "$nome"
+    done | sort -u
+}
+
+# `cores` sem traço além das formas com traço: era assim que o painel de
+# aparência já chamava (Aparencia.qml), e como "cores" não é cor de pasta
+# o script saía com erro — a lista de cores do painel vinha vazia e a
+# seção "COR DAS PASTAS" aparecia sem nenhum chip.
+if [[ $COR == "cores" || $COR == "--cores" || $COR == "-c" ]]; then
+    cores_disponiveis
+    exit 0
+fi
+
+if ! cores_disponiveis | grep -qx "$COR"; then
+    echo "rice-folders: $(txt cli.folders.nocolor "$COR")" >&2
+    echo "$(txt cli.folders.available) $(cores_disponiveis | tr '\n' ' ')" >&2
+    exit 1
+fi
+
+# ── Links ────────────────────────────────────────────────────────────
+# Monta num diretório TEMPORÁRIO e troca no fim, em vez de apagar o
+# antigo e reconstruir no lugar.
+#
+# O `rm -rf "$DESTINO"` seguido de reconstrução deixava o tema PraXe
+# INEXISTENTE por alguns milissegundos — e o index.theme, que é o que
+# torna o diretório um tema de verdade, só era escrito no fim, bem depois
+# dos links. Qualquer programa que resolvesse um ícone nessa janela
+# recebia vazio.
+#
+# E vazio GRUDA: no Quickshell o caminho do ícone é um binding que só
+# reavalia quando o NOME do ícone muda, o que não acontece. O dock ficava
+# sem ícone até ser reiniciado — que era o sintoma de "os ícones somem".
+#
+# Com a troca por `mv`, o caminho $DESTINO ou tem o tema antigo inteiro ou
+# o novo inteiro. Nunca nada.
+TMP="$DESTINO.novo.$$"
+rm -rf "$TMP"
+mkdir -p "$TMP"
+trap 'rm -rf "$TMP"' EXIT
+DESTINO_FINAL="$DESTINO"
+DESTINO="$TMP"
+
+shopt -s nullglob
+dirs=()
+total=0
+
+for origem in "$BASE"/*/places; do
+    [[ -d $origem ]] || continue
+    rel="${origem#"$BASE"/}"                 # ex: 64x64/places
+    mkdir -p "$DESTINO/$rel"
+    dirs+=("$rel")
+
+    # DOIS prefixos, e não só `folder`.
+    #
+    # O Papirus nomeia Desktop e Home fora da família `folder-`: eles são
+    # `user-desktop.svg`, `user-home.svg` e `user-home-open.svg`, com as
+    # mesmas variantes de cor (`user-brown-desktop.svg` etc.).
+    #
+    # Ligar só `folder-*` deixava esses três caindo por herança no
+    # Papirus-Dark, cujo padrão é AZUL. O resultado era um gerenciador de
+    # arquivos com todas as pastas na cor do tema e a Desktop e a Home
+    # azuis no meio — que lê como tema quebrado, e foi exatamente assim
+    # que apareceu. Pior: são os dois ícones mais visíveis do Nautilus,
+    # já que moram na barra lateral.
+    for prefixo in folder user; do
+        # Os dois padrões de cada prefixo são tratados SEPARADAMENTE de
+        # propósito.
+        #
+        # Um glob `folder-$COR*` casaria `folder-bluegrey*` quando a cor
+        # é `blue` — e o tema sairia com a cor errada, silenciosamente.
+        # Casar `folder-blue.svg` e `folder-blue-*.svg` em separado não
+        # tem essa ambiguidade (depois de `blue` tem de vir um hífen).
+        #
+        # A forma sem sufixo só existe para `folder`: não há
+        # `user-brown.svg`, apenas os três com sufixo. O `[[ -e ]]`
+        # cuida disso sem precisar de caso especial.
+        for src in "$origem/$prefixo-$COR.svg" "$origem/$prefixo-$COR"-*.svg; do
+            [[ -e $src ]] || continue
+            nome=$(basename "$src")
+            resto="${nome#"$prefixo-$COR"}"   # ".svg" ou "-documents.svg"
+            ln -sfn "$src" "$DESTINO/$rel/${prefixo}${resto}"
+            total=$((total + 1))
+        done
+    done
+done
+
+[[ $total -gt 0 ]] || { echo "rice-folders: $(txt cli.folders.nolink)" >&2; exit 1; }
+
+# ── index.theme ──────────────────────────────────────────────────────
+{
+    echo "[Icon Theme]"
+    echo "Name=PraXe"
+    echo "Comment=$(txt cli.folders.comment "$COR")"
+    # A herança é o que traz todo o resto: aplicativos, dispositivos,
+    # ações. Este tema só tem pastas.
+    echo "Inherits=Papirus-Dark,Papirus,Adwaita,hicolor"
+    echo "Directories=$(IFS=,; echo "${dirs[*]}")"
+    echo
+
+    for d in "${dirs[@]}"; do
+        tam="${d%%/*}"                       # 64x64 ou 64x64@2x
+        px="${tam%%x*}"
+        [[ $px =~ ^[0-9]+$ ]] || px=64
+        echo "[$d]"
+        echo "Size=$px"
+        echo "Context=Places"
+        echo "Type=Fixed"
+        # Sem Scale=2 o Qt trata o @2x como se fosse do mesmo tamanho e
+        # escolhe o arquivo errado em tela HiDPI.
+        [[ $tam == *@2x ]] && echo "Scale=2"
+        echo
+    done
+} > "$DESTINO/index.theme"
+
+gtk-update-icon-cache -q -f "$DESTINO" 2>/dev/null || true
+
+# ── A troca ──────────────────────────────────────────────────────────
+# O tema novo já está pronto e com index.theme. Só agora o antigo sai.
+# `mv` para um caminho auxiliar e remoção depois, porque `mv` de
+# diretório sobre diretório existente não substitui — aninha dentro.
+if [[ -d $DESTINO_FINAL ]]; then
+    VELHO="$DESTINO_FINAL.velho.$$"
+    mv -T "$DESTINO_FINAL" "$VELHO"
+    mv -T "$DESTINO" "$DESTINO_FINAL" || { mv -T "$VELHO" "$DESTINO_FINAL"; exit 1; }
+    rm -rf "$VELHO"
+else
+    mv -T "$DESTINO" "$DESTINO_FINAL"
+fi
+trap - EXIT
+DESTINO="$DESTINO_FINAL"
+
+# Escrever nos quatro lugares é trabalho do rice-icons; aqui só o
+# chamamos. Antes esta parte não existia e o painel montava um tema que
+# ninguém passava a usar.
+if [[ $APLICAR == aplicar || $APLICAR == --aplicar ]]; then
+    command -v rice-icons >/dev/null 2>&1 && rice-icons aplicar PraXe >/dev/null
+
+    # O nome do tema não mudou (PraXe continua PraXe), só o conteúdo.
+    # GTK e Qt só recarregam ícone quando o NOME muda, então passar por
+    # outro nome e voltar é o que força o redesenho.
+    #
+    # O nome intermediário é Papirus-Dark, e NÃO `hicolor` como era antes.
+    #
+    # `hicolor` é o tema de último recurso: quase não tem ícone nenhum.
+    # Enquanto ele estivesse valendo — fração de segundo, mas real — todo
+    # aplicativo que resolvesse um ícone recebia vazio. Programas que
+    # guardam o caminho resolvido ficavam sem ícone permanentemente, e era
+    # preciso reiniciá-los para voltar. Papirus-Dark é justamente o tema
+    # do qual o PraXe herda: tem os mesmos ícones de aplicativo, então o
+    # pior que acontece na fração de segundo é a pasta piscar de cor.
+    if command -v gsettings >/dev/null 2>&1; then
+        gsettings set org.gnome.desktop.interface icon-theme "Papirus-Dark" 2>/dev/null || true
+        gsettings set org.gnome.desktop.interface icon-theme "PraXe"        2>/dev/null || true
+    fi
+fi
+
+echo "$(txt cli.folders.done "$COR" ) $(txt cli.folders.sizes "${#dirs[@]}" ), $total"

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=YouTube
+Comment=Web app — https://youtube.com
+Exec=zen-browser --new-window https://youtube.com
+Icon=/home/sidnei-almeida/.local/share/rice/icons/youtube.png
+Terminal=false
+StartupWMClass=rice-webapp-youtube
+Categories=Network;
+X-Rice-Webapp=https://youtube.com

@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# Resolve os ícones do dock UMA VEZ, aqui, e deixa o caminho pronto.
+#
+#   rice-dock-icones            regenera a pasta de ícones do dock
+#   rice-dock-icones --listar   mostra o que resolveu, sem escrever
+#
+# ── POR QUE ISTO EXISTE ──────────────────────────────────────────────
+#
+# O dock resolvia o ícone dentro do QML, com `Quickshell.iconPath(nome)`.
+# Isso falhava de quatro maneiras diferentes, e todas apareciam do mesmo
+# jeito na tela — o ícone virava a letra inicial do app:
+#
+#   1. NOME QUE O TEMA NÃO TEM. `perplexity` e `zen` não existem como
+#      ícone; o que existe é `Perplexity` (só em /usr/share/pixmaps) e
+#      `zen-browser`. Quem sabe o nome certo é o arquivo .desktop.
+#   2. CAIXA DIFERENTE. O favorito se chama `cursor`, o arquivo é
+#      `Cursor.svg`. Em sistema de arquivos sensível a caixa, não casa.
+#   3. FORA DO TEMA. Vários ícones moram só em /usr/share/pixmaps, que
+#      não é tema de ícones — a busca por tema não chega lá.
+#   4. CORRIDA. O tema PraXe é reconstruído a cada troca de tema. Quem
+#      resolvesse um ícone no meio disso recebia vazio, e vazio grudava,
+#      porque o binding do QML não reavalia sozinho.
+#
+# ── POR QUE SYMLINK E NÃO CÓPIA ──────────────────────────────────────
+#
+# A ideia de copiar os ícones para uma pasta nossa resolve o sintoma e
+# cria dois problemas: ocupa espaço duplicado e ENVELHECE — quando o app
+# é atualizado e troca o desenho do ícone, a cópia continua a antiga, e
+# nada avisa. O link simbólico aponta para o arquivo do sistema, então
+# acompanha a atualização sozinho.
+#
+# A pasta inteira é REGENERADA a cada chamada, e não remendada. Assim,
+# tirar um app dos favoritos remove o link sem precisar de nenhuma lógica
+# de remoção — o que não é gerado deixa de existir.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+CFG="$HOME/.config/rice/pill.json"
+DEST="$HOME/.local/share/rice/dock-icons"
+
+APPDIRS=(
+  "$HOME/.local/share/applications"
+  /usr/share/applications
+  /usr/local/share/applications
+)
+
+# Ordem de busca de ícone. O tema do usuário primeiro, e os diretórios
+# soltos (pixmaps) por último — eles são o depósito legado, onde os
+# empacotadores jogam o que não virou tema.
+ICONDIRS=(
+  "$HOME/.local/share/icons"
+  /usr/share/icons
+  /usr/share/pixmaps
+  /usr/local/share/pixmaps
+)
+
+SOMENTE_LISTAR=false
+[[ ${1:-} == --listar ]] && SOMENTE_LISTAR=true
+
+# ── Achar o .desktop de um id ────────────────────────────────────────
+#
+# Tenta o nome exato e depois sem diferenciar caixa. Não faz busca
+# "parecida" de propósito: casar `code` com `codecs.desktop` põe o ícone
+# errado no dock, e ícone errado é pior que letra — a letra ao menos
+# avisa que não achou.
+achar_desktop() {
+  local id="$1" d f
+  for d in "${APPDIRS[@]}"; do
+    [[ -d $d ]] || continue
+    [[ -f "$d/$id.desktop" ]] && { printf '%s' "$d/$id.desktop"; return 0; }
+  done
+  for d in "${APPDIRS[@]}"; do
+    [[ -d $d ]] || continue
+    f=$(find "$d" -maxdepth 1 -iname "$id.desktop" 2>/dev/null | head -1)
+    [[ -n $f ]] && { printf '%s' "$f"; return 0; }
+  done
+  return 1
+}
+
+# ── Achar o arquivo de um nome de ícone ──────────────────────────────
+#
+# `-iname` cobre a diferença de caixa, que é o caso do Cursor.
+#
+# O desempate é por PONTUAÇÃO, e não pelo primeiro que aparecer. A
+# primeira versão ordenava por comprimento do caminho, achando que o mais
+# longo seria o de maior resolução — e escolheu `Papirus-Light/.../
+# categories/`, que é o tema claro e o contexto errado. Num dock escuro,
+# ícone do tema claro sai lavado.
+#
+# A pontuação, em ordem de peso:
+#   apps        o contexto certo para ícone de aplicativo
+#   -Dark       o rice é escuro; entre as duas variantes, essa
+#   -Light      penalizado pelo mesmo motivo
+#   svg         vetor não borra no tamanho que o dock desenha
+#   tamanho     entre dois PNG, o maior
+achar_icone() {
+  local nome="$1" d achado
+
+  # Caminho absoluto no Icon= do .desktop: já está resolvido.
+  [[ $nome == /* && -f $nome ]] && { printf '%s' "$nome"; return 0; }
+
+  for d in "${ICONDIRS[@]}"; do
+    [[ -d $d ]] || continue
+    achado=$(find -L "$d" -type f \
+               \( -iname "$nome.svg" -o -iname "$nome.png" -o -iname "$nome.xpm" \) \
+               2>/dev/null |
+      awk '{
+        p = $0; s = 0
+        if (p ~ /\/apps\//)     s += 1000
+        if (p ~ /-Dark\//)      s += 400
+        if (p ~ /-Light\//)     s -= 400
+        if (p ~ /\.svg$/)       s += 200
+        if (p ~ /scalable/)     s += 150
+        # maior lado NxN encontrado no caminho
+        n = 0
+        if (match(p, /[0-9]+x[0-9]+/)) { n = substr(p, RSTART, RLENGTH); sub(/x.*/, "", n) }
+        s += n
+        print s "\t" p
+      }' | sort -rn | head -1 | cut -f2-)
+    [[ -n $achado ]] && { printf '%s' "$achado"; return 0; }
+  done
+  return 1
+}
+
+resolver() {
+  local id="$1" desktop nome
+  desktop=$(achar_desktop "$id") || desktop=""
+
+  # O nome declarado no .desktop tem prioridade sobre o id: é ele que o
+  # empacotador escolheu, e quase sempre é o que existe no tema. O id
+  # entra só como último recurso, para app sem .desktop.
+  if [[ -n $desktop ]]; then
+    nome=$(grep -m1 '^Icon=' "$desktop" 2>/dev/null | cut -d= -f2-)
+  fi
+  [[ -z ${nome:-} ]] && nome="$id"
+
+  achar_icone "$nome" || achar_icone "$id" || return 1
+}
+
+# ── Geração ──────────────────────────────────────────────────────────
+mapfile -t favoritos < <(jq -r '.dockFavoritos // [] | .[]' "$CFG" 2>/dev/null)
+
+if $SOMENTE_LISTAR; then
+  for id in "${favoritos[@]}"; do
+    printf '%-24s %s\n' "$id" "$(resolver "$id" || echo '*** NAO RESOLVIDO ***')"
+  done
+  exit 0
+fi
+
+# Gera num temporário e troca no fim, pela mesma razão do rice-folders:
+# não pode existir um instante em que a pasta esteja vazia ou pela metade
+# — é justamente nesse instante que o dock resolveria vazio.
+TMP="$DEST.novo.$$"
+rm -rf "$TMP"; mkdir -p "$TMP"
+trap 'rm -rf "$TMP"' EXIT
+
+n=0
+mapa="{}"
+for id in "${favoritos[@]}"; do
+  alvo=$(resolver "$id") || { echo "rice-dock-icones: $(txt cli.dockicons.noicon "$id")" >&2; continue; }
+  ln -sfn "$alvo" "$TMP/$id.${alvo##*.}"
+  # O MAPA é o que o dock lê, e não a listagem da pasta.
+  #
+  # A extensão varia (svg aqui, png ali), então descobrir o arquivo pelo
+  # id exigiria o dock tentar `.svg`, `.png`, `.xpm` e ver qual existe —
+  # três consultas ao disco por ícone, a cada repintura, e um palpite
+  # errado sempre que aparecesse um formato novo. Com o mapa ele lê uma
+  # vez e sabe.
+  mapa=$(printf '%s' "$mapa" | jq --arg k "$id" --arg v "$TMP/$id.${alvo##*.}" '.[$k]=$v')
+  n=$((n + 1))
+done
+# Os caminhos gravados apontam para o diretório FINAL, não para o
+# temporário — o mapa só passa a valer depois da troca lá embaixo.
+printf '%s' "${mapa//$TMP/$DEST}" > "$TMP/mapa.json"
+
+mkdir -p "$(dirname "$DEST")"
+if [[ -d $DEST ]]; then
+  VELHO="$DEST.velho.$$"
+  mv -T "$DEST" "$VELHO"
+  mv -T "$TMP" "$DEST" || { mv -T "$VELHO" "$DEST"; exit 1; }
+  rm -rf "$VELHO"
+else
+  mv -T "$TMP" "$DEST"
+fi
+trap - EXIT
+
+echo "$(txt cli.dockicons.done "$n") $DEST"

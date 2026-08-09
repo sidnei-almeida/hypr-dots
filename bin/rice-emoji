@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Seletor de emoji. Copia o emoji escolhido para a área de transferência.
+# Busca funciona em português e em inglês: "coracao", "heart", "fogo", "fire".
+# Atalho: SUPER + CTRL + E
+#
+# A lista fica em ~/.local/share/rice/emoji.txt — pode editar e adicionar.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+list="$HOME/.local/share/rice/emoji.txt"
+
+[[ -f $list ]] || { notify-send "$(txt notif.app.emoji)" "$(txt notif.emoji.nolist "$list")"; exit 1; }
+
+pkill -x fuzzel 2>/dev/null && exit 0
+
+choice=$(grep -v '^\s*$' "$list" |
+  fuzzel --dmenu --prompt "   " --placeholder "Buscar emoji..." \
+    --lines 12 --width 44) || exit 0
+
+[[ -z $choice ]] && exit 0
+
+emoji="${choice%% *}"
+printf '%s' "$emoji" | wl-copy
+notify-send -t 1500 "$(txt notif.clip.title)" "$emoji"

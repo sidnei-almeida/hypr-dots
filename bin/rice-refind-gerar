@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# Gera o tema do rEFInd (gerenciador de boot) em ~/.local/share/rice/refind-praxe.
+#
+#   rice-refind-gerar
+#
+# NÃO instala nada: só monta os arquivos na home. Quem escreve na
+# partição EFI é o rice-refind-instalar, que precisa de root.
+#
+# POR QUE O TEMA DO BOOT NÃO SEGUE O TEMA DO RICE, e é de propósito:
+# o rEFInd roda ANTES do sistema existir. Não há como ele ler o
+# theme.json, e mesmo que houvesse, regenerar a partição EFI a cada troca
+# de tema seria escrever no boot dezenas de vezes por dia por motivo
+# estético. A tela de boot ganha uma identidade FIXA — preto e o azul do
+# Arch — que é o que ela deve ter: reconhecível e imutável.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+DEST="$HOME/.local/share/rice/refind-praxe"
+ICO="$DEST/icons"
+ASSETS="$HOME/.config/rice/assets"
+
+# ── Paleta do boot, fixa ─────────────────────────────────────────────
+# O azul é o oficial do Arch (#1793d1), tirado do próprio logo. O fundo é
+# quase preto com um tom de azul dentro: preto puro num monitor grande
+# mostra cada imperfeição do painel, e um tom de cor esconde isso.
+FUNDO=0f1216
+AZUL=1793d1
+CLARO=d7dde3
+
+LARGURA=3440
+ALTURA=1440
+
+command -v magick >/dev/null || { echo "$(txt cli.needs imagemagick)" >&2; exit 1; }
+command -v rsvg-convert >/dev/null || { echo "$(txt cli.needs librsvg)" >&2; exit 1; }
+
+rm -rf "$DEST"; mkdir -p "$ICO"
+
+# ── Fundo ────────────────────────────────────────────────────────────
+#
+# Um brilho radial suave atrás de onde a fileira de ícones aparece, e
+# nada mais. Tentei um logo grande de marca d'água e ficou pior: o rEFInd
+# desenha os ícones no centro, e qualquer desenho ali disputa com eles.
+# O brilho dá profundidade sem competir.
+magick -size ${LARGURA}x${ALTURA} \
+    radial-gradient:"#1c2733"-"#${FUNDO}" \
+    -gravity center -extent ${LARGURA}x${ALTURA} \
+    "$DEST/background.png"
+
+# ── Ícone do Arch ────────────────────────────────────────────────────
+#
+# 256px e não 128: o rEFInd escala para baixo conforme `big_icon_size`, e
+# escalar para baixo é limpo. Para cima borra.
+LOGO="$ASSETS/arch-logo-oficial.svg"
+[[ -f $LOGO ]] || LOGO=/usr/share/pixmaps/archlinux-logo.svg
+rsvg-convert -w 256 -h 256 -a "$LOGO" -o "$ICO/_arch.png"
+
+# Uma sombra difusa por baixo destaca o logo do fundo sem contorno —
+# contorno num logo com essa silhueta engrossa as pontas e estraga.
+magick "$ICO/_arch.png" \
+    \( +clone -background "#000000" -shadow 55x14+0+4 \) \
+    +swap -background none -layers merge +repage \
+    -resize 256x256 -gravity center -extent 256x256 \
+    "$ICO/os_arch.png"
+rm -f "$ICO/_arch.png"
+
+# O rEFInd escolhe o ícone pelo nome que detecta, e o nome varia com o
+# volume e o carregador. Cobrir os apelidos prováveis com o MESMO arquivo
+# é mais barato que descobrir qual ele usa nesta máquina.
+for n in os_linux os_arch-linux os_archlinux os_unknown os_vmlinuz; do
+    cp "$ICO/os_arch.png" "$ICO/$n.png"
+done
+
+# ── Seleção ──────────────────────────────────────────────────────────
+#
+# Um quadrado arredondado azul translúcido com borda mais viva. O rEFInd
+# desenha esta imagem ATRÁS do ícone, então ela precisa ser maior que
+# `big_icon_size` para virar moldura em vez de fundo colado.
+selecao() {
+    local lado="$1" saida="$2" raio="$3" borda="$4"
+    magick -size ${lado}x${lado} xc:none \
+      -fill "#${AZUL}33" -stroke "#${AZUL}cc" -strokewidth "$borda" \
+      -draw "roundrectangle $((borda/2+1)),$((borda/2+1)) $((lado-borda/2-2)),$((lado-borda/2-2)) $raio,$raio" \
+      "$saida"
+}
+selecao 144 "$ICO/selection_big.png"   18 3
+selecao  64 "$ICO/selection_small.png"  9 2
+
+# ── Ícones de função ─────────────────────────────────────────────────
+#
+# Vêm do conjunto SIMBÓLICO do Adwaita: são monocromáticos por desenho,
+# então recolorir é trocar a cor de preenchimento e não brigar com
+# gradiente nenhum. Os coloridos do Papirus ficariam berrantes ao lado do
+# logo azul, que é o único elemento que deve ter cor nesta tela.
+A=/usr/share/icons/Adwaita/symbolic/actions
+func() {
+    local origem="$1" saida="$2"
+    [[ -f $origem ]] || { echo "  (sem $origem, pulando)"; return; }
+    rsvg-convert -w 128 -h 128 -a "$origem" -o /tmp/_f.png
+    # `-colorize 100` troca só os canais de COR e não encosta no alfa —
+    # o glifo continua recortado.
+    #
+    # A primeira versão usava `-alpha extract ... -alpha shape`, e isso
+    # produz um QUADRADO SÓLIDO: o `-alpha extract` transforma o alfa em
+    # imagem em tons de cinza E deixa o alfa todo opaco, então o
+    # `-alpha shape` seguinte recorta contra um alfa que já é retângulo
+    # cheio. O símbolo somia e sobrava a moldura.
+    #
+    # `-background none` e `PNG32:` são obrigatórios, e sem eles o glifo
+    # sai num quadrado BRANCO opaco: o `-extent` preenche com o fundo
+    # corrente (branco por padrão) e o gravador de PNG descarta o canal
+    # alfa quando pode. Conferido com `identify -format %A`: a saída do
+    # rsvg vem "Blend" e virava "Undefined".
+    magick /tmp/_f.png -background none -fill "#${CLARO}" -colorize 100 \
+        -resize 128x128 -gravity center -extent 128x128 PNG32:"$saida"
+    rm -f /tmp/_f.png
+}
+func "$A/system-reboot-symbolic.svg"    "$ICO/func_reset.png"
+func "$A/system-shutdown-symbolic.svg"  "$ICO/func_shutdown.png"
+func "$A/application-exit-symbolic.svg" "$ICO/func_exit.png"
+func "$A/help-about-symbolic.svg"       "$ICO/func_about.png"
+func "$A/system-reboot-symbolic.svg"    "$ICO/func_firmware.png"
+
+# ── theme.conf ───────────────────────────────────────────────────────
+#
+# É um INCLUDE: o refind.conf principal continua sendo do pacote, e este
+# arquivo só sobrepõe o que interessa. Assim uma atualização do refind
+# não apaga o tema, e desinstalar é remover uma linha.
+cat > "$DEST/theme.conf" <<EOF
+# Tema PraXe para o rEFInd. Gerado por rice-refind-gerar.
+#
+# Este arquivo é INCLUÍDO pelo refind.conf; não o substitui. Todo caminho
+# aqui é relativo à pasta do tema.
+
+# O fundo. \`fillscreen\` estica para a tela inteira — a imagem já é
+# 3440x1440, então em tela igual não há reamostragem.
+banner            background.png
+banner_scale      fillscreen
+
+icons_dir         icons
+selection_big     icons/selection_big.png
+selection_small   icons/selection_small.png
+
+# 128 é grande o bastante para o logo respirar numa tela de 34" e ainda
+# caber várias entradas na fileira.
+big_icon_size     128
+small_icon_size   48
+
+# Esconde o texto de ajuda e as setas do rodapé. O rEFInd sem eles vira
+# uma fileira de ícones no escuro, que é a intenção. \`label\` FICA: sem
+# o nome embaixo, duas entradas parecidas viram adivinhação.
+hideui            hints,arrows,badges
+
+# Segundos até dar boot na entrada padrão. -1 espera para sempre.
+timeout           5
+
+# Ferramentas no rodapé, na ordem em que aparecem.
+showtools         shutdown,reboot,firmware
+
+# Sem barra de rolagem de resolução: usa a nativa do monitor.
+resolution        max
+EOF
+
+echo "$(txt cli.refind.generated "$DEST")"
+find "$DEST" -type f | sed "s|$DEST/|  |" | sort

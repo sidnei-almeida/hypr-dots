@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Faz os apps GTK4/libadwaita pegarem a paleta nova do tema.
+#
+#   rice-gtk-reload          reinicia os apps que precisam
+#   rice-gtk-reload --quais  só lista o que seria reiniciado
+#
+# POR QUE ISTO PRECISA EXISTIR
+#
+# Não há como trocar a paleta de um app libadwaita a quente. Foi testado,
+# e não é falta de procurar:
+#
+#   · o GTK4 lê ~/.config/gtk-4.0/gtk.css UMA VEZ, quando o app sobe.
+#     Reescrever o arquivo não dispara nada — não há file monitor.
+#   · trocar `gtk-theme-name` e voltar recarrega o tema, mas não relê o
+#     CSS do usuário. Comparado pixel a pixel: nada muda.
+#   · o portal (org.freedesktop.appearance) só transporta `color-scheme`
+#     e `accent-color`. Essas DUAS o rice já muda a quente; o resto da
+#     paleta não passa por ali.
+#
+# Sobra reiniciar o app. O custo disso é a janela aberta, e é esse custo
+# que este script existe para reduzir: ele anota onde cada janela do
+# Nautilus estava e reabre lá.
+#
+# Os ÍCONES não precisam disto — aqueles o GTK recarrega sozinho quando o
+# nome do tema de ícone muda (ver o truque do `hicolor` no rice-folders).
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -uo pipefail
+
+SOMENTE_LISTAR=false
+[[ ${1:-} == --quais ]] && SOMENTE_LISTAR=true
+
+# ── Onde as janelas do Nautilus estão ─────────────────────────────────
+#
+# O Nautilus não publica a pasta aberta em lugar nenhum: o D-Bus dele
+# expõe org.gtk.Application (que só sabe ABRIR) e o hyprctl só tem o
+# TÍTULO da janela, que é o nome de exibição da pasta e não o caminho.
+#
+# Então isto é resolução por nome, e é aproximada de propósito. Acerta o
+# HOME e as pastas XDG, que é onde um gerenciador de arquivos passa a
+# maior parte do tempo; erra em pasta funda de nome repetido, e nesse
+# caso cai no HOME em vez de fingir que sabe.
+resolver_titulo() {
+    local t="$1" d
+
+    # Estes nomes NÃO passam pelo `txt`, e a exceção é importante.
+    #
+    # Eles não são mensagem NOSSA: são o título que o NAUTILUS põe na
+    # janela, e o que se faz aqui é COMPARAR com ele. Traduzi-los pelo
+    # nosso dicionário compararia o título do Nautilus com a nossa
+    # tradução — duas coisas que não têm por que coincidir.
+    #
+    # Por isso a lista tem todas as variantes de uma vez, sem olhar o
+    # locale: é mais barato aceitar as quatro do que acertar qual o
+    # Nautilus está usando. "Carpeta personal" é a forma do GNOME em
+    # espanhol; "Pasta pessoal" e "Início" são as duas do português.
+    [[ $t == Home || $t == "Pasta pessoal" || $t == "Início" \
+       || $t == "Carpeta personal" || $t == "Inicio" ]] && { echo "$HOME"; return; }
+
+    # Pasta XDG pelo nome de exibição (Downloads, Imagens, Vídeos...).
+    for chave in DESKTOP DOWNLOAD DOCUMENTS MUSIC PICTURES VIDEOS PUBLICSHARE TEMPLATES; do
+        d=$(xdg-user-dir "$chave" 2>/dev/null) || continue
+        [[ -n $d && $(basename "$d") == "$t" ]] && { echo "$d"; return; }
+    done
+
+    # Filha direta do HOME.
+    [[ -d "$HOME/$t" ]] && { echo "$HOME/$t"; return; }
+
+    # Não deu: HOME. Melhor abrir num lugar previsível do que adivinhar.
+    echo "$HOME"
+}
+
+mapfile -t titulos < <(
+    hyprctl clients -j 2>/dev/null |
+        jq -r '.[] | select(.class == "org.gnome.Nautilus") | .title' 2>/dev/null
+)
+
+destinos=()
+for t in "${titulos[@]}"; do
+    [[ -z $t ]] && continue
+    destinos+=("$(resolver_titulo "$t")")
+done
+
+if $SOMENTE_LISTAR; then
+    if [[ ${#destinos[@]} -eq 0 ]]; then
+        echo "$(txt cli.gtk.nowindow)"
+    else
+        printf "$(txt cli.gtk.wouldreopen) %s\n" "${destinos[@]}"
+    fi
+    exit 0
+fi
+
+# ── Reinício ──────────────────────────────────────────────────────────
+pgrep -x nautilus >/dev/null 2>&1 || exit 0
+
+# `-q` e não `pkill`: pede ao app que encerre, o que deixa ele salvar
+# estado e fechar as janelas na ordem. Um SIGKILL deixaria o serviço
+# D-Bus meio morto e a próxima abertura demoraria o timeout inteiro.
+nautilus -q >/dev/null 2>&1
+
+# Espera ele sair de verdade. Sem isto, a reabertura abaixo é atendida
+# pela instância que ainda está morrendo — e ela leva a janela nova junto.
+for _ in {1..40}; do
+    pgrep -x nautilus >/dev/null 2>&1 || break
+    sleep 0.1
+done
+
+for d in "${destinos[@]}"; do
+    setsid -f nautilus --new-window "$d" >/dev/null 2>&1
+    sleep 0.2
+done
+
+exit 0

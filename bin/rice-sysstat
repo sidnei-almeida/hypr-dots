@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Imprime "<cpu%> <mem%>" — consumido pela pill.
+# O uso de CPU precisa de duas amostras do /proc/stat; a janela é curta
+# de propósito para o comando não ficar segurando a atualização da barra.
+
+set -euo pipefail
+
+read -r _ u1 n1 s1 i1 w1 x1 y1 _ < /proc/stat
+t1=$((u1 + n1 + s1 + i1 + w1 + x1 + y1))
+idle1=$((i1 + w1))
+
+sleep 0.25
+
+read -r _ u2 n2 s2 i2 w2 x2 y2 _ < /proc/stat
+t2=$((u2 + n2 + s2 + i2 + w2 + x2 + y2))
+idle2=$((i2 + w2))
+
+dt=$((t2 - t1))
+di=$((idle2 - idle1))
+cpu=0
+[[ $dt -gt 0 ]] && cpu=$(( (100 * (dt - di)) / dt ))
+
+mem=$(awk '
+  /^MemTotal:/     { total = $2 }
+  /^MemAvailable:/ { avail = $2 }
+  END { if (total > 0) printf "%d", (total - avail) * 100 / total; else print 0 }
+' /proc/meminfo)
+
+echo "$cpu $mem"

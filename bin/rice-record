@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Grava a tela em MP4. Rodar de novo (ou pelo menu) encerra a gravação.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+# Pastas do usuário — vêm do xdg-user-dirs. Ver rice-pastas.sh.
+source "$HOME/.local/bin/rice-pastas.sh"
+
+set -euo pipefail
+
+if pgrep -x wf-recorder >/dev/null 2>&1; then
+  pkill -INT -x wf-recorder
+  notify-send "$(txt notif.app.rec.done)" "$(txt notif.rec.saved)"
+  exit 0
+fi
+
+command -v wf-recorder >/dev/null 2>&1 || {
+  notify-send "$(txt notif.app.rec)" "$(txt notif.rec.nowfrecorder)"
+  exit 1
+}
+
+# "Recordings" em inglês e fixo, como as demais subpastas do rice — ver a
+# nota sobre isso no rice-pastas.sh. Era "Gravações", que renomearia a
+# pasta (e sumiria com as gravações antigas) a cada troca de idioma.
+dir="$(rice_pasta VIDEOS Videos)/Recordings"
+mkdir -p "$dir"
+
+file="$dir/gravacao-$(date +%Y-%m-%d_%H-%M-%S).mp4"
+
+# Sem argumento grava a tela toda; "region" pede uma área com o mouse.
+if [[ "${1:-}" == "region" ]]; then
+  geometry=$(slurp -b 1a1b2680 -c 7aa2f7ff -w 2) || exit 0
+  setsid -f wf-recorder -g "$geometry" -f "$file" >/dev/null 2>&1
+else
+  setsid -f wf-recorder -f "$file" >/dev/null 2>&1
+fi
+
+notify-send -t 2500 "$(txt notif.rec.running)" "$(txt notif.rec.howtostop)"

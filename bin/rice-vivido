@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Realce de cor da tela (vibrance), via shader do Hyprland.
+#
+#   rice-vivido            mostra a intensidade em vigor
+#   rice-vivido 25         aplica intensidade 25 (0..100)
+#   rice-vivido off        desliga
+#
+# Para que serve: painel VA e monitor em faixa de cor limitada entregam
+# uma imagem correta porém apagada. O shader recupera o viço sem mexer
+# no perfil do monitor nem exigir suporte a color management.
+#
+# É vibrance e não saturação: o realce é inversamente proporcional ao
+# quanto o pixel já é colorido. Ver o comentário no .frag.
+#
+# A intensidade fica no pill.json, para o painel de aparência ler.
+
+
+# Idioma da interface — segue o locale. Ver rice-idioma.sh.
+source "$HOME/.local/bin/rice-idioma.sh"
+
+set -euo pipefail
+
+PATH="$(dirname "$(realpath "$0")"):$PATH"
+SHADERS="$HOME/.config/hypr/shaders"
+FRAG="$SHADERS/vivido.frag"
+CFG="$HOME/.config/rice/pill.json"
+
+atual() { jq -r '.vivido // 25' "$CFG" 2>/dev/null || echo 25; }
+
+gravar_cfg() {
+  local tmp; tmp=$(mktemp)
+  jq --argjson v "$1" '.vivido = $v' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+}
+
+# Quem aplica é o decor.lua, gerado pelo rice-theme a partir do
+# pill.json, e um `hyprctl reload`.
+#
+# NÃO use `hyprctl eval` aqui. Ele grava a opção — o getoption até
+# confirma o caminho — mas não dispara o parser do shader: um .frag
+# propositalmente quebrado passa sem reclamação nenhuma. Pelo arquivo de
+# config, o parser roda de verdade.
+#
+# E quando ele reclama, a mensagem vai para a TELA, não para o log.
+# Se algo aqui parecer não funcionar, o comando é `hyprctl configerrors`.
+recarregar() {
+  rice-theme set "$(rice-theme current)" >/dev/null 2>&1 || true
+  hyprctl reload >/dev/null 2>&1 || true
+}
+
+desligar() {
+  gravar_cfg 0
+  recarregar
+  echo "off"
+}
+
+aplicar() {
+  local n="$1"
+  (( n >= 0 && n <= 100 )) || { echo "rice-vivido: use 0..100" >&2; exit 1; }
+  [[ $n -eq 0 ]] && { desligar; return; }
+
+  mkdir -p "$SHADERS"
+  [[ -f $FRAG ]] || { echo "rice-vivido: $(txt cli.vivido.noexist "$FRAG")" >&2; exit 1; }
+
+  # 100 no painel = 0.60 no shader. O teto é deliberadamente baixo:
+  # acima disso a pele fica alaranjada e o céu vira cartaz.
+  local forca
+  forca=$(awk -v n="$n" 'BEGIN{ printf "%.3f", n * 0.006 }')
+  sed -i "s|^const float FORCA = .*|const float FORCA = $forca;|" "$FRAG"
+
+  gravar_cfg "$n"
+
+  recarregar
+
+  # O parser cospe o erro na tela, não no log. Checar aqui evita deixar
+  # o usuário com um aviso vermelho e nenhuma pista do motivo.
+  local erros; erros=$(hyprctl configerrors 2>/dev/null | head -3)
+  if [[ -n $erros ]]; then
+    echo "rice-vivido: o Hyprland recusou o shader:" >&2
+    echo "$erros" >&2
+    gravar_cfg 0; recarregar
+    exit 1
+  fi
+
+  echo "$n"
+}
+
+case "${1:-mostrar}" in
+  mostrar|"") atual ;;
+  off|0)      desligar ;;
+  *)          aplicar "$1" ;;
+esac

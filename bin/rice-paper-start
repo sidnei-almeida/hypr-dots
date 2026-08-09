@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Sobe o hyprpaper e GARANTE que o papel de parede apareça.
+#
+# Por que `hyprpaper` sozinho não basta: ele lê o .conf uma única vez, na
+# subida, e o monitor vazio antes da vírgula (`wallpaper = ,imagem`) quer
+# dizer "todos os monitores CONHECIDOS naquele instante" — não "todos os
+# que existirem um dia". Quando o hyprpaper ganha a corrida contra o DRM e
+# sobe antes do monitor estar no ar, a linha não se aplica a ninguém: o
+# processo fica vivo e saudável, o `listactive` volta VAZIO, e a tela fica
+# preta. Nada nos logs acusa isso, porque do ponto de vista dele deu certo.
+#
+# A correção é reaplicar por IPC depois que o monitor apareceu. O comando
+# `wallpaper` é idempotente, então reaplicar quando já tinha dado certo não
+# custa nada — e é por isso que dá para tentar em laço sem medo.
+#
+# Atenção (mesma ressalva do rice-wallpaper): nesta versão do hyprpaper só
+# existem `wallpaper` e `listactive`. `preload`, `reload`, `listloaded` e
+# `unload` respondem "invalid hyprpaper request".
+
+set -uo pipefail
+
+CONF="$HOME/.config/hypr/hyprpaper.conf"
+
+command -v hyprpaper >/dev/null 2>&1 || exit 0
+
+# O caminho é a fonte da verdade gravada pelo rice-wallpaper.
+PAPEL=$(grep -m1 '^wallpaper' "$CONF" 2>/dev/null | sed 's/^wallpaper *= *,//')
+[[ -f ${PAPEL:-} ]] || exit 0
+
+# `pgrep -x hyprpaper` NÃO serve para saber se há papel de parede aqui.
+#
+# O hyprpaper é preso a UMA instância do Hyprland: o socket dele mora em
+# $XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.hyprpaper.sock. Um
+# hyprpaper de outra instância é um processo vivo e um daemon inútil para
+# esta sessão — o `hyprctl` daqui não alcança o socket dele.
+#
+# Era esse o bug: abrir um segundo Hyprland (aninhado, para testar) deixava
+# o hyprpaper da sessão de fora rodando. O `pgrep` via o processo, concluía
+# "já está de pé" e não subia nenhum; em seguida todo `hyprctl hyprpaper`
+# falhava com "failed to connect", o laço rodava os 10s e desistia calado.
+# Resultado: sessão nova sem papel de parede, e nada nos logs.
+#
+# Quem responde de verdade é o próprio hyprctl, que já é ESCOPADO por
+# instância: exit 0 = há um hyprpaper atendendo ESTA sessão; exit != 0 =
+# não há, seja porque nenhum subiu, seja porque o que existe é de outra.
+paper_responde() { hyprctl hyprpaper listactive >/dev/null 2>&1; }
+
+subir_hyprpaper() { setsid -f hyprpaper >/dev/null 2>&1; }
+
+paper_responde || subir_hyprpaper
+
+# ~15s de teto. Sai no primeiro `listactive` com conteúdo — no caminho
+# feliz isso acontece na primeira volta e o laço custa meio segundo.
+#
+# O `subir_hyprpaper` pode reaparecer aqui dentro porque a sessão aninhada
+# ensinou que o daemon também morre junto com o compositor que o criou: se
+# ele cair no meio da subida, insistir no IPC contra um socket morto não
+# levaria a lugar nenhum. A guarda é o `paper_responde` — só sobe outro
+# quando ninguém está atendendo, então não vira enxame de processos.
+for _ in {1..30}; do
+    sleep 0.5
+    if paper_responde; then
+        hyprctl hyprpaper listactive 2>/dev/null | grep -q . && exit 0
+        hyprctl hyprpaper wallpaper ",$PAPEL" >/dev/null 2>&1
+    else
+        subir_hyprpaper
+    fi
+done

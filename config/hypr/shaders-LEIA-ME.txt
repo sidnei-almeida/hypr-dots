@@ -1,0 +1,17 @@
+Este arquivo é só documentação — o Hyprland não o lê.
+
+Todos os perfis de jogo compartilham as mesmas peças, nesta ordem:
+
+  1. pretos()     aprofunda só o pé da curva (o "OLED" no painel VA)
+  2. contraste()  curva em torno de um pivô
+  3. saturacao()  ganho plano, usado só onde o jogo pede lavagem
+  4. vibrance()   realce inverso à saturação já existente
+  5. tonalizar()  split-tone: uma cor nas sombras, outra nas luzes
+  6. vinheta()    escurece as pontas, achatada para o 21:9
+
+A ordem importa. Tonalizar ANTES do contraste faz a cor escapar no
+clamp; vibrance DEPOIS do split mantém o tom que o split acabou de dar.
+
+DIALETO: GLSL ES 3.00 (in/out/texture), igual ao vivido.frag. Escrever
+no dialeto antigo não dá erro no log — o Hyprland cospe a reclamação NA
+TELA. Se um perfil parecer ignorado: hyprctl configerrors
