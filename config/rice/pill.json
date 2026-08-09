@@ -58,5 +58,6 @@
   "pillTransp": false,
   "paineisTransp": true,
   "showWeather": true,
-  "iconesFixos": true
+  "iconesFixos": true,
+  "autoTema": true
 }
