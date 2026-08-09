@@ -5,7 +5,7 @@
 **Um rice de Hyprland que se reconstrói inteiro a partir de uma paleta.**
 
 Sete temas, uma barra em Quickshell, tela de bloqueio, dock, lançador e
-trinta e oito utilitários, todos lendo as mesmas dez cores.
+trinta e nove utilitários, todos lendo as mesmas dez cores.
 
 ![Hyprland](https://img.shields.io/badge/Hyprland-0.56-58E1FF?style=flat-square&logo=hyprland&logoColor=white)
 ![Quickshell](https://img.shields.io/badge/Quickshell-QML-41CD52?style=flat-square&logo=qt&logoColor=white)
@@ -99,11 +99,11 @@ Editou hoje, está versionado agora.
 
 ### 2. Aqui mora fonte, nunca artefato gerado
 
-O `rice-theme` **escreve catorze arquivos** a cada troca de tema:
+O `rice-theme` **escreve quinze arquivos** a cada troca de tema:
 
 ```
 hyprlock.conf · colors.lua · decor.lua · opacity.lua · hyprpaper.conf
-fuzzel.ini · kitty/colors.conf · gtk-3.0/gtk.css · gtk-4.0/gtk.css
+theme.json · fuzzel.ini · kitty/colors.conf · gtk-3.0/gtk.css · gtk-4.0/gtk.css
 gtk-*/settings.ini · kdeglobals · fastfetch/config.jsonc · mpv.conf · imv/config
 ```
 
@@ -114,6 +114,14 @@ traz a paleta de outra máquina por cima da sua.
 **Consequência prática:** logo depois de clonar, a máquina tem os
 geradores mas não a saída deles. Por isso o último passo do `install.sh` é
 rodar `rice-theme set`, e a instalação não está completa sem ele.
+
+Escrever quinze arquivos custa **3,4 s**, o que é aceitável ao trocar de
+tema e absurdo ao ajustar a espessura de uma borda em 1px. Para isso
+existe o caminho rápido, que gera só o que o Hyprland lê:
+
+```bash
+RICE_SO_DECOR=1 rice-theme set <tema>   # 0,10 s
+```
 
 ---
 
@@ -126,12 +134,12 @@ hypr-dots/
 │   ├── hypr/               Hyprland em Lua, hypridle, 7 shaders de tela
 │   ├── rice/
 │   │   ├── themes/         paletas, uma por arquivo, fábrica e derivadas
-│   │   ├── shell/          a barra em Quickshell (20 arquivos, 7.9k linhas)
+│   │   ├── shell/          a barra em Quickshell (20 arquivos, 8.7k linhas)
 │   │   ├── idioma/         pt · en · es
 │   │   └── assets/
 │   ├── kitty/
 │   └── Code/User/          settings e keybindings do VSCode
-├── bin/                    38 utilitários rice-*
+├── bin/                    39 utilitários rice-*
 ├── wallpapers/             40 imagens
 ├── apps/applications/      atalhos .desktop
 └── packages/               pacman · AUR · dev · extensões do VSCode
@@ -286,6 +294,7 @@ ganhar uma cor nova, ela entra sozinha.
 | `rice-anim` | Ritmo, quique (ζ) e estilo das animações |
 | `rice-wallpaper` | Troca o papel de parede e reaplica o tema em vigor |
 | `rice-keyring` | Faz o desbloqueio da tela destravar o cofre de senhas |
+| `rice-brilho` | Brilho do monitor por DDC/CI, para quem não tem backlight |
 | `rice-vivido` | Realce de cor por shader, na tela inteira |
 | `rice-icons` · `rice-folders` | Tema de ícones e cor das pastas |
 | `rice-screenshot` · `rice-record` · `rice-ocr` | Captura, gravação e texto de imagem |
@@ -306,6 +315,81 @@ rice-anim estilo genio   # mola · cortina · deslize · genio
 
 Rigidez e atrito nunca são digitados à mão: saem do período `T` e do
 amortecimento `ζ`, calculados no `looknfeel.lua`.
+
+---
+
+## Personalização das janelas
+
+Espessura da borda, arredondamento e espaçamento saem do painel de
+aparência, aba Sistema. E as cores da borda também, guardando o **papel**
+da paleta, nunca o hex:
+
+| controle | o que guarda |
+|---|---|
+| Borda ativa, início e fim | dois papéis, para o gradiente |
+| Ângulo do gradiente | graus, em passos de 15 |
+| Borda inativa | um papel |
+
+Guardar o hex seria mais simples e estaria errado: a borda deixaria de
+acompanhar o tema, e trocar do Nord para o Hotrod manteria a borda azul.
+Guardando o papel (`accent`, `ok`, `err`), a escolha é sobre a **função**
+da cor e sobrevive à troca: cada tema resolve aquele papel com o seu
+próprio valor.
+
+---
+
+## Brilho sem backlight
+
+`/sys/class/backlight` está vazio num desktop, e o `brightnessctl` só
+enxerga LED de placa de rede: as teclas de brilho obedeciam e não mudavam
+nada. O brilho de um monitor externo mora **no monitor**, e se fala com
+ele pelo cabo de vídeo (DDC/CI, sobre I²C).
+
+```bash
+rice-brilho          # valor atual
+rice-brilho 60       # define
+rice-brilho +5       # relativo
+```
+
+O barramento fica em cache, e é daí que vem a velocidade:
+
+| chamada | tempo |
+|---|---|
+| `ddcutil setvcp 10 95` | 335 ms |
+| `ddcutil --bus 10 setvcp 10 95` | **67 ms** |
+
+Quase todo o custo do comando padrão é redescobrir o barramento a cada
+chamada, varrendo os `/dev/i2c-*` e ler o EDID de cada um. São esses 67 ms
+que tornam um controle deslizante possível; com 335 ms cada arrasto viraria
+uma fila e o brilho chegaria segundos depois do dedo.
+
+> Requer `ddcutil`, o módulo `i2c-dev` e o usuário no grupo `i2c`. Se o
+> monitor não responder ao `ddcutil detect`, o controle some do painel em
+> vez de virar um botão que não faz nada.
+
+---
+
+## Desenho: três regras que apareceram na prática
+
+**O que separa não precisa ser desenhado.** A cápsula tinha seis filetes
+de 1px entre os grupos de módulos, e os botões do centro de controle tinham
+contorno. Linha divisória é a solução mais barata para delimitar e a mais
+barulhenta numa peça que existe para desaparecer. Hoje o agrupamento vem do
+**ritmo de espaçamento** (7px dentro do grupo, 16px entre grupos) e os
+botões vêm de preenchimento fraco. O que tornava a linha necessária era o
+espaçamento uniforme: com 16px em tudo, módulo do mesmo grupo ficava tão
+distante quanto módulo de grupo diferente.
+
+**O que muda de estado fica mais longo, nunca mais alto.** A área de
+trabalho ativa tinha o dobro da altura dos pontos, e uma fileira com um
+caroço no meio deixa de ser uma linha. É o princípio do indicador de página
+do iOS: a ativa se lê pelo comprimento e pela cor.
+
+**Quicar quando se toca é resposta; quicar sozinho é instabilidade.** Os
+pontos de área usavam `Easing.OutBack`, que passa do alvo e volta. E como
+o Hyprland destrói área vazia, cada troca de área recriava pontos que
+renasciam quicando. O overshoot ficou só onde há um dedo envolvido: hover
+no dock, pressão no controle deslizante, seleção de papel de parede.
 
 ---
 
