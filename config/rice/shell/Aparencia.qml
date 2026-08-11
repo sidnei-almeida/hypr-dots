@@ -350,6 +350,44 @@ Item {
     // de mudança, e reabrir o painel na mesma sessão precisa disparar.
     property int entradaEpoca: 0
 
+    // ── Pré-carga das miniaturas de tema ────────────────────────
+    //
+    // As fotos entravam com atraso e SEM animação: o cartão fazia a cascata
+    // sozinho e a imagem aparecia depois, de estalo. Fica pior que sem
+    // animação nenhuma, porque a cascata promete que aquilo foi encenado e
+    // a foto chegando fora do tempo desmente na hora.
+    //
+    // A carga é assíncrona de propósito — sete fotos, várias em 4K, e travar
+    // a abertura do painel para descomprimir todas seria trocar um defeito
+    // por outro pior. O conserto é começar ANTES: este bloco invisível pede
+    // as sete assim que a lista de temas chega, no arranque da barra. Quando
+    // o painel abre, o cache já está quente e o cartão nasce com a foto.
+    //
+    // ESTA CONSTANTE É A PEÇA QUE FAZ FUNCIONAR. O Qt indexa o cache de
+    // imagem por (caminho, sourceSize) — largura diferente é OUTRA entrada,
+    // e a pré-carga não serviria para nada. Antes o cartão pedia
+    // `grade.cellWidth * 2`, que no arranque ainda não tem valor: qualquer
+    // pré-carga erraria a chave por construção. Agora os dois pedem daqui.
+    //
+    // 320px porque a célula fica em torno de 250 e o dobro cobre tela HiDPI
+    // sem carregar 4K para uma miniatura.
+    readonly property int larguraMiniatura: Math.round(320 * Theme.scale)
+
+    Item {
+        visible: false
+        Repeater {
+            model: root.temas
+            delegate: Image {
+                required property var modelData
+                source: modelData.papel ? "file://" + modelData.papel : ""
+                asynchronous: true
+                cache: true
+                sourceSize.width: root.larguraMiniatura
+                width: 1; height: 1
+            }
+        }
+    }
+
     // ── Ações ───────────────────────────────────────────────────
     Process { id: acao }
 
@@ -1133,18 +1171,39 @@ Item {
                                 anchors.fill: parent
                                 source: cartao.modelData.papel
                                         ? "file://" + cartao.modelData.papel : ""
-                                visible: status === Image.Ready
                                 fillMode: Image.PreserveAspectCrop
                                 // Assíncrono e reamostrado: são sete fotos,
                                 // várias em 4K, e carregá-las no tamanho
                                 // original travaria a abertura do painel por
                                 // um cartão de 100px de largura.
+                                //
+                                // A largura vem da constante do root, e é o
+                                // que faz a pré-carga acertar a chave do
+                                // cache — ver a nota longa lá em cima.
                                 asynchronous: true
-                                sourceSize.width: Math.round(grade.cellWidth * 2)
-                                opacity: cartao.atual ? 1.0
-                                       : (areaCard.containsMouse ? 0.92 : 0.72)
+                                cache: true
+                                sourceSize.width: root.larguraMiniatura
+
+                                // Aparece por fade, e não por `visible`.
+                                //
+                                // Com `visible: status === Image.Ready` a foto
+                                // ligava de um quadro para o outro. Com o
+                                // cache quente isso acontece antes de alguém
+                                // ver — mas o cache pode estar frio: primeira
+                                // abertura logo após ligar a barra, ou papel
+                                // trocado por fora. Aí o estalo aparecia, e
+                                // justamente no lugar onde a cascata acabou
+                                // de prometer que tudo foi encenado.
+                                //
+                                // Assim o caso ruim vira um fade de 200ms em
+                                // vez de um susto, e o caso bom continua
+                                // instantâneo: pronta desde o primeiro
+                                // quadro, a opacidade já nasce no valor final.
+                                opacity: status !== Image.Ready ? 0
+                                       : (cartao.atual ? 1.0
+                                          : (areaCard.containsMouse ? 0.92 : 0.72))
                                 Behavior on opacity {
-                                    NumberAnimation { duration: Theme.animRapido
+                                    NumberAnimation { duration: Theme.animPadrao
                                                       easing.type: Theme.curva }
                                 }
                             }
