@@ -37,6 +37,26 @@ config/rice/current
 # a aparecer como arquivo novo num commit de sincronia.
 config/rice/themes/.ultimo-auto
 
+# ── Temas gerados: lista de permissão, não de bloqueio ──────────
+#
+# O `rice-auto` cria um tema a partir de um papel de parede, e o nome sai
+# do arquivo ou da cor de acento: `blue-02`, `forest-05`, `bdjjw17581gh1`.
+# Não há prefixo — nenhum glob separa gerado de escrito à mão, e quatro
+# deles chegaram a ser versionados sem ninguém notar.
+#
+# Por isso a regra é ao contrário: ignora-se a pasta e liberam-se um a um
+# os temas que alguém sentou e escreveu. Tema novo feito à mão só entra se
+# for acrescentado aqui — o que é chato uma vez, e é o ponto: obriga a
+# decidir se aquilo é fonte ou artefato.
+config/rice/themes/*.sh
+!config/rice/themes/catppuccin-mocha.sh
+!config/rice/themes/everforest-dark.sh
+!config/rice/themes/gruvbox-dark.sh
+!config/rice/themes/hotrod.sh
+!config/rice/themes/mare.sh
+!config/rice/themes/nord.sh
+!config/rice/themes/samurai.sh
+
 # ── Sobras ──────────────────────────────────────────────────────
 *.bak
 *.bak-*
