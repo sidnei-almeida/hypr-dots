@@ -29,11 +29,36 @@ set -uo pipefail
 SHADERS="$HOME/.config/hypr/shaders"
 PADRAO=vivido
 
+# Os perfis de jogo têm borrão (halação e clareza), ou seja, cada pixel lê
+# os VIZINHOS. O Hyprland redesenha só o retângulo que mudou, então o pixel
+# que está fora do retângulo mas deveria mudar — porque o borrão puxa de
+# dentro dele — fica com o quadro velho colado na tela. Ao lado de vídeo em
+# janela, isso aparece como uma mancha parada na barra preta.
+#
+# É a mesma restrição que faz o Hyprland recusar a uniform `time`.
+#
+# Desligar o damage tracking durante o jogo é de graça: em tela cheia a tela
+# inteira muda todo quadro e não havia nada para economizar. Caro seria
+# deixar assim no desktop — por isso o `off` devolve o padrão.
+#
+# É `hyprctl eval` com Lua, e não `hyprctl keyword`: esta configuração é a
+# Lua, e o keyword responde "keyword can't work with non-legacy parsers".
+DAMAGE_JOGO=0
+DAMAGE_PADRAO=2
+
+damage() {
+    hyprctl eval "hl.config({ debug = { damage_tracking = $1 } })" >/dev/null 2>&1
+}
+
 # Perfis de jogo = tudo menos o vivido e os utilitários que vêm com o
 # hyprshade. A ordem é a do ciclo, e é fixa de propósito: atalho de
 # teclado que muda de destino conforme o conteúdo da pasta é atalho que
 # ninguém decora.
-JOGOS=(lies-of-p breakpoint witcher3 rdr2 gtav alien-isolation)
+#
+# O `gaming` vem primeiro de propósito: é o genérico, sem cor nenhuma, para
+# jogo que ainda não tem perfil próprio. Quem cicla a partir do vivido cai
+# nele antes de cair numa leitura de outro jogo.
+JOGOS=(gaming lies-of-p breakpoint witcher3 rdr2 gtav alien-isolation)
 
 aviso() { notify-send -t 1800 "$(txt notif.app.screen)" "$1" 2>/dev/null || true; }
 
@@ -63,9 +88,12 @@ aplicar() {
         echo "rice-shader: o Hyprland recusou o shader:" >&2
         echo "$erros" >&2
         hyprshade on "$PADRAO" >/dev/null 2>&1
+        damage "$DAMAGE_PADRAO"
         aviso "$(txt notif.shader.refused)"
         exit 1
     fi
+
+    [[ $nome == "$PADRAO" ]] && damage "$DAMAGE_PADRAO" || damage "$DAMAGE_JOGO"
 
     [[ $nome == "$PADRAO" ]] && aviso "$(txt notif.shader.default)" || aviso "$nome"
     echo "$nome"

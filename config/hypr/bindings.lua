@@ -229,13 +229,22 @@ hl.bind(mod .. " + SHIFT + ALT + Q", hl.dsp.exit(),
 -- └──────────────────────────────────────────────┘
 --
 -- Cada perfil é uma correção de cor pensada para UM jogo — ver os
--- comentários em ~/.config/hypr/shaders/*.frag. Todos partem da mesma
--- base: pretos mais fundos (o painel VA não tem preto de OLED) e
--- vibrance no lugar de saturação plana, que é o que evita virar filtro.
+-- comentários em ~/.config/hypr/shaders/*.frag e o shaders-LEIA-ME.txt.
+-- Todos partem da mesma base: a compensação da gama 2.4 do modo Cinema
+-- do monitor mais o pé da curva, que juntos devolvem a sombra que o
+-- painel VA engole, e vibrance no lugar de saturação plana.
+--
+-- O 7 é a exceção e o mais usado no dia a dia: o `gaming` é genérico,
+-- sem cor nenhuma (lift, gama e ganho são a identidade matemática), para
+-- jogo que ainda não tem perfil próprio.
 --
 -- SUPER+ALT+<número> e não SUPER+<número>: este último já troca de
 -- área de trabalho. Atalho duplicado não dá erro no Hyprland — o
 -- segundo simplesmente nunca dispara, e a busca pelo motivo é longa.
+--
+-- Os números 1 a 6 NÃO foram renumerados quando o `gaming` entrou, e é
+-- por isso que o genérico ficou no 7 em vez do 1: atalho que muda de
+-- destino conforme a pasta cresce é atalho que ninguém decora.
 --
 -- O 0 volta ao vivido, que é o padrão do sistema. NÃO é "sem shader":
 -- sem shader a tela fica apagada, que é o estado que o rice corrige.
@@ -255,5 +264,7 @@ hl.bind(mod .. " + ALT + 5", hl.dsp.exec_cmd(run("rice-shader") .. " gtav"),
   { description = "Tela: GTA V (sol de Los Santos, bleach bypass)" })
 hl.bind(mod .. " + ALT + 6", hl.dsp.exec_cmd(run("rice-shader") .. " alien-isolation"),
   { description = "Tela: Alien Isolation (frio, o mais escuro)" })
+hl.bind(mod .. " + ALT + 7", hl.dsp.exec_cmd(run("rice-shader") .. " gaming"),
+  { description = "Tela: genérico para jogos (sem cor, só vibrance)" })
 hl.bind(mod .. " + ALT + 0", hl.dsp.exec_cmd(run("rice-shader") .. " off"),
   { description = "Tela: voltar ao padrão do sistema" })
