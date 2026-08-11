@@ -16,67 +16,85 @@ out vec4 fragColor;
 // renova sozinho quando a imagem se move, que é quando o olho notaria.
 
 // ══════════════════════════════════════════════════════════════════════
-//  GTA V — Los Santos, luz dura e smog
+//  Gaming — genérico, para jogo que ainda não tem perfil próprio
 // ══════════════════════════════════════════════════════════════════════
 //
-// A referência declarada da Rockstar para Los Santos é o cinema de Los
-// Angeles dos anos 90 — Michael Mann, Tony Scott: luz dura, sombra ciano e
-// uma camada de smog amarelo-esverdeada em cima de tudo.
+// Os outros cinco perfis são uma LEITURA de um jogo: escolhem um clima e
+// pagam por ele. Este não escolhe nada. Ele existe para o jogo que ainda
+// não tem perfil, e a única coisa que faz é devolver o que a tela tira.
 //
-// É o perfil de contraste mais alto (1.38) e clareza mais alta do conjunto
-// (0.25), e isso é proposital: LA no cinema é uma cidade SEM
-// bruma atmosférica, ao contrário de RDR2. Tudo é nítido até o horizonte, e
-// essa nitidez é que faz a cidade parecer grande.
+// NÃO HÁ COR NENHUMA AQUI, e isso é literal, não é força de expressão:
 //
-// O smog vive na GAMA (0.994, 1.010, 0.984), no meio-tom, que é onde o ar
-// está. Tingi-lo pela sombra — a única opção da versão anterior —
-// escurecia a cidade em vez de sujar o ar dela.
+//     LIFT  = (0, 0, 0)       soma zero nas sombras
+//     GAMA  = (1, 1, 1)       expoente 1 é identidade
+//     GANHO = (1, 1, 1)       produto 1 é identidade
 //
-// BLEACH BYPASS em 0.10, o mais forte do conjunto. Pular o branqueamento
-// deixa a prata no negativo junto com a cor: contraste alto E croma baixo ao
-// mesmo tempo. Era o processo de "Três Reis" e "O Resgate do Soldado Ryan",
-// e é o que dá o metálico de LA sem apagar a imagem. Nenhum controle de
-// saturação faz isso, porque saturação só mexe no croma.
+// As três operações de balanço de cor são a identidade matemática. Não há
+// tom para vazar, não há o que ajustar, e nenhuma cena pode puxar para
+// lado nenhum. O que sobra é o que um jogo qualquer ganha de graça:
 //
-// Saturação 1.00 com vibrance 0.28 é a combinação que sustenta o bleach: o
-// bleach come croma nos meios e o vibrance devolve croma só ao que ficou
-// cinza demais. As duas peças juntas dão cor seletiva; qualquer uma sozinha
-// daria lavagem ou berreiro.
+//  · a compensação de gama do modo Cinema e o PÉ, que juntos devolvem a
+//    sombra que o painel engole — é a maior parte do ganho, e vale para
+//    qualquer jogo, de qualquer gênero;
+//  · VIBRANCE em 0.40, o mais alto do conjunto e a razão de este perfil
+//    existir. Vibrance realça na razão INVERSA do croma que o pixel já
+//    tem: o cinza lavado sobe muito, o vermelho de interface quase nada.
+//    É por isso que dá para usar um número alto assim sem virar berreiro
+//    — saturação plana em 0.40 chaparia a tela inteira;
+//  · clareza, que separa o que está perto do que está longe.
+//
+// SAT_SOMBRA é 1.000, o único do conjunto. Sombra sem croma é escolha de
+// filme, e escolha de filme é justamente o que este perfil não faz.
+//
+// A curva é a mais próxima do correto: contraste medido em 161x contra os
+// 158x de uma tela sRGB de referência, ou seja, praticamente em cima. Os
+// outros perfis ficam entre 170x e 213x porque contraste extra É uma
+// escolha estética. O ganho real está nas pontas: sombra em 0.36 nits
+// contra 0.34 da referência, e altas luzes em 168 contra 133 — mais
+// separação onde a ação acontece, sem mexer no meio.
+//
+// A ótica está no mínimo pelo mesmo motivo. Halação em 0.030 com limiar
+// 0.82 toca só fonte de luz de verdade; aberração em zero, porque HUD e
+// legenda de jogo desconhecido têm de ficar limpos; grão em 0.008, o
+// suficiente para o gradiente não parecer plástico. Vinheta em 0.06 e sem
+// perda de croma nenhuma.
+//
+// Em resumo: é o que dá para melhorar sem saber que jogo é.
 
 // ── Exposição e curva ──
-const float EXPOSICAO     = 1.030                     ;
-const float CONTRASTE     = 1.400                     ;  // o mais alto: LA no cinema não tem bruma
+const float EXPOSICAO     = 1.020                     ;
+const float CONTRASTE     = 1.200                     ;  // 161x medido, contra 158x da referência sRGB
 const float PIVO          = 0.594                     ;
 const float CALCANHAR     = 0.022                     ;
-const float ABERTURA_PE   = 0.579                     ;
-const float JOELHO        = 0.880                     ;
+const float ABERTURA_PE   = 0.670                     ;
+const float JOELHO        = 0.920                     ;
 
 // ── Cor: lift/gama/ganho = sombras/meios/luzes ──
-const vec3  LIFT          = vec3(0.0003, 0.0006, 0.0011);
-const vec3  GAMA          = vec3(0.9920, 1.0120, 0.9800);  // o smog vive no meio-tom, não na sombra
-const vec3  GANHO         = vec3(1.0400, 1.0150, 0.9180);
+const vec3  LIFT          = vec3(0.0000, 0.0000, 0.0000);  // identidade: não há tom para vazar
+const vec3  GAMA          = vec3(1.0000, 1.0000, 1.0000);  // identidade
+const vec3  GANHO         = vec3(1.0000, 1.0000, 1.0000);  // identidade
 
 // ── Croma ──
-const float SATURACAO     = 1.050                     ;
-const float SAT_SOMBRA    = 0.920                     ;
-const float VIBRANCE      = 0.360                     ;  // devolve croma só ao que o bleach lavou demais
-const float BLEACH        = 0.080                     ;  // o mais forte: contraste alto com croma baixo
+const float SATURACAO     = 1.060                     ;
+const float SAT_SOMBRA    = 1.000                     ;  // o único em 1.000: sombra sem croma é escolha de filme
+const float VIBRANCE      = 0.400                     ;  // o mais alto do conjunto, e a razão deste perfil existir
+const float BLEACH        = 0.000                     ;
 
 // ── Ótica ──
-const float CLAREZA       = 0.340                     ;
+const float CLAREZA       = 0.280                     ;
 const float CLAREZA_RAIO  = 8.000                     ;
-const float LIMITE_CLAREZA = 4.500                     ;
-const float HALACAO       = 0.045                     ;
-const float HAL_LIMIAR    = 0.780                     ;
-const float HAL_RAIO      = 18.000                    ;
-const vec3  HAL_TINT      = vec3(1.0000, 0.6000, 0.3400);
-const float ABERRACAO     = 0.300                     ;
-const float VINHETA       = 0.090                     ;
-const float VIN_RAIO      = 0.370                     ;
-const float VIN_CROMA     = 0.020                     ;
+const float LIMITE_CLAREZA = 4.000                     ;
+const float HALACAO       = 0.030                     ;
+const float HAL_LIMIAR    = 0.820                     ;
+const float HAL_RAIO      = 16.000                    ;
+const vec3  HAL_TINT      = vec3(1.0000, 0.8200, 0.6800);
+const float ABERRACAO     = 0.000                     ;  // zero: HUD de jogo desconhecido tem de ficar limpo
+const float VINHETA       = 0.060                     ;
+const float VIN_RAIO      = 0.400                     ;
+const float VIN_CROMA     = 0.000                     ;
 
 // ── Filme e painel ──
-const float GRAO          = 0.014                     ;
+const float GRAO          = 0.008                     ;
 const float PISO          = 0.000                     ;
 
 // ══════════════════════════════════════════════════════════════════════

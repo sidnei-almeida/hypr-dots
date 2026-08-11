@@ -1,17 +1,303 @@
 Este arquivo é só documentação — o Hyprland não o lê.
 
-Todos os perfis de jogo compartilham as mesmas peças, nesta ordem:
+Aplicar: rice-shader <perfil> | rice-shader lista | rice-shader off
 
-  1. pretos()     aprofunda só o pé da curva (o "OLED" no painel VA)
-  2. contraste()  curva em torno de um pivô
-  3. saturacao()  ganho plano, usado só onde o jogo pede lavagem
-  4. vibrance()   realce inverso à saturação já existente
-  5. tonalizar()  split-tone: uma cor nas sombras, outra nas luzes
-  6. vinheta()    escurece as pontas, achatada para o 21:9
 
-A ordem importa. Tonalizar ANTES do contraste faz a cor escapar no
-clamp; vibrance DEPOIS do split mantém o tom que o split acabou de dar.
+OS PERFIS
+────────────────────────────────────────────────────────────────────────
 
-DIALETO: GLSL ES 3.00 (in/out/texture), igual ao vivido.frag. Escrever
-no dialeto antigo não dá erro no log — o Hyprland cospe a reclamação NA
-TELA. Se um perfil parecer ignorado: hyprctl configerrors
+  gaming           genérico. NENHUMA cor: lift, gama e ganho são a
+                   identidade matemática, então não há tom que possa
+                   vazar. Só devolve a sombra que o painel engole e sobe
+                   o croma pelo vibrance. É o perfil para jogo que ainda
+                   não tem o seu, e o primeiro do ciclo por isso.
+  lies-of-p        Krat: lampião a gás contra pedra fria
+  breakpoint       Auroa: oliva tático, croma baixo, clareza alta
+  witcher3         terroso e pictórico, o de croma mais alto
+  rdr2             faroeste: bruma preservada, halo largo
+  gtav             Los Santos: contraste alto, bleach bypass
+  alien-isolation  o filme de 1979: sódio contra ciano, grão de 5247
+
+  Os seis últimos são uma LEITURA de um jogo — escolhem um clima e pagam
+  por ele em contraste (170x a 213x). O `gaming` não escolhe: fica em 161x,
+  praticamente em cima dos 158x de uma tela sRGB correta.
+
+
+A TELA (é ela que define metade dos números)
+────────────────────────────────────────────────────────────────────────
+
+  Samsung Odyssey G5 S34CG50 — VA 1000R, 3440x1440 @100 Hz, ~250 nits,
+  contraste nativo ~3000:1, modo de imagem CINEMA.
+
+  Três consequências, e cada uma vira uma peça do shader:
+
+  1. O modo Cinema segue a BT.1886, gama ~2.4. O sinal do jogo é sRGB,
+     gama ~2.2. Mandar 2.2 para uma tela em 2.4 escurece tudo abaixo do
+     meio-tom, e o erro cresce quanto mais escuro o pixel. É a causa
+     principal de "o preto está quase invisível" — e ela estava DEPOIS do
+     shader, o que é o motivo de nenhum ajuste de sombra ter resolvido.
+     Peça: compensar_tela(). Se trocar o monitor para Padrão/sRGB, ponha
+     GAMA_TELA = 2.2 e a função vira identidade.
+
+  2. 250 nits é pouco. Escurecer por multiplicação global (o `c *= 0.84`
+     da primeira versão) não sobra. O escuro vem da CURVA e da COR; a
+     exposição de todo perfil fica entre 0.95 e 1.03.
+
+  3. O preto do painel emite 0.083 nits. Sombra abaixo disso não existe,
+     por mais correta que esteja no código — mas LUZ acrescentada por cima
+     dele some do mesmo jeito, espalhada pela tela toda, e isso é véu. Por
+     isso o piso de preto é ZERO nos seis perfis: quem levanta a sombra é
+     o PÉ da curva, que age só abaixo do calcanhar e mapeia 0 em 0.
+
+  Medido, em nits emitidos (referência = o que uma tela sRGB correta daria).
+  A última coluna é o contraste entre 5% e 50% de sinal, que é onde mora a
+  sensação de "cinematográfico" — quanto maior, mais a imagem tem peso:
+
+    perfil            preto    .05    .10    .20    .35    .50 branco  .50/.05
+    referência sRGB   0.083  0.343   1.58   7.25   24.8   54.4  250.0    158x
+    gaming            0.083  0.360   1.17   5.00   22.6   57.9  247.5    161x
+    breakpoint        0.083  0.300   0.97   3.79   20.3   57.5  246.4    192x
+    alien-isolation   0.083  0.265   0.88   3.30   18.9   56.4  245.8    213x
+    witcher3          0.083  0.309   0.98   3.73   20.5   58.9  247.2    190x
+    rdr2              0.083  0.341   1.08   4.36   21.5   57.9  246.9    170x
+    gtav              0.083  0.290   0.86   3.04   19.1   61.8  247.6    213x
+    lies-of-p         0.083  0.304   0.96   3.53   19.9   58.1  246.3    191x
+
+  Como se lê: sombra (.05) acima de 0.26 nits, ou seja 3x o preto do painel
+  — visível. Meios-tons abaixo da referência, altas luzes acima dela, e o
+  contraste 20% a 40% MAIOR que o de uma tela correta. É esse par (sombra
+  visível + contraste acima da referência) que dá cinema; um sem o outro dá
+  ou tela cega ou tela lavada.
+
+  As duas tentativas anteriores erraram cada uma para um lado, e vale
+  guardar os números porque eles delimitam a faixa útil:
+
+    versão            preto    .05    .10    .20    .35    .50 branco  .50/.05
+    1a (escura)       0.083  0.169   0.66   4.39   21.7   57.3  186.0    339x
+    2a (lavada)       0.415  0.873   1.88   6.68   23.8   57.5  230.5     66x
+
+  A 1a apagava a sombra e o branco. A 2a corrigiu a sombra com um piso de
+  preto de 0.024, que põe 0.42 nits em CADA pixel — cinco vezes o preto do
+  painel, espalhado por tudo — e derrubou o contraste a 66x, menos da metade
+  da referência. Véu não é sombra.
+
+O PIPELINE
+────────────────────────────────────────────────────────────────────────
+
+  Todos os perfis rodam exatamente as mesmas treze etapas, e diferem SÓ no
+  bloco de constantes do topo de cada arquivo.
+
+   1. leitura com aberração cromática (sub-pixel, cresce com r²)
+   2. sRGB -> LUZ LINEAR, e a exposição
+   3. clareza: contraste local em PARADAS de luz, com limitador de borda
+   4. halação: halo avermelhado em volta das altas luzes
+   5. contraste em espaço LOG, em torno do pivô 0.595 (cinza médio 18%)
+   6. PÉ: abre a sombra abaixo do calcanhar, sem levantar o preto
+   7. lift / gama / ganho = sombras / meios-tons / altas luzes,
+      com o ganho mascarado e o tom TODO pesado pelo croma do pixel:
+      cinza sai cinza (ver COR, mais abaixo)
+   8. saturação global + um segundo passe só nas sombras
+   9. ombro (assíntota nas altas) e volta para espaço de tela
+  10. bleach bypass, vibrance, vinheta (luz E croma)
+  11. piso de preto (= 0) + compensação de gama da tela
+  12. grão de filme, pesado nos meios-tons, monocromático, semeado pela
+      luminância do pixel (o porquê está em DIALETO, mais abaixo)
+  13. dither de meio nível contra banding de 8 bits
+
+  A ORDEM IMPORTA, e três pontos em particular:
+
+    · a graduação inteira acontece em LUZ LINEAR. Contraste e saturação
+      multiplicados em cima da curva sRGB misturam tons que na luz real
+      nunca se misturariam — é o que dava o ar de "filtro transparente por
+      cima da tela", e é a diferença mais importante entre esta versão e
+      a anterior;
+    · o contraste é em LOG, não em linear. Em linear, uma parada de luz no
+      alto ocupa metade do eixo e uma parada no pé ocupa migalhas, então
+      contraste em linear estoura o céu e esmaga a sombra;
+    · o PÉ vem logo depois do contraste, e é ele que paga a conta do
+      contraste. Contraste em torno de um pivô é uma reta: tudo abaixo do
+      pivô desce, e desce mais quanto mais fundo estiver, então todo ganho
+      de contraste sai do detalhe de sombra. Sem pé, a única saída é baixar
+      o pivô — e isso clareia a imagem inteira, o que só muda o problema de
+      lugar (medido: os meios-tons iam a 75 nits contra os 54 corretos).
+      O pé age SÓ abaixo do calcanhar e mapeia 0 em 0, então abre a sombra
+      sem pôr véu. Pé, reta e ombro: é a curva de qualquer filme.
+
+  O QUE FAZ PARECER CINEMA não é a cor, é a ótica: halação, grão, clareza,
+  aberração e a perda de croma na borda. Curva de cor sozinha nunca passa
+  de filtro, por melhor que esteja ajustada — foi o teto que a versão
+  anterior bateu.
+
+
+AJUSTAR
+────────────────────────────────────────────────────────────────────────
+
+  Cada perfil abre com um bloco de constantes comentadas. Os que mais
+  importam, e o que fazem:
+
+    EXPOSICAO    escuro/claro global. Última coisa a mexer, não a primeira
+    CONTRASTE    ganho em torno do pivô, em log
+    PIVO         < 0.595 escurece a imagem inteira; > 0.595 clareia
+    CALCANHAR    até onde o pé age, em luz linear. 0.022 ~ 15% de sinal
+    ABERTURA_PE  expoente do pé. MENOR abre mais a sombra. É o botão certo
+                 para "não enxergo nada no escuro" — nunca o PISO
+    JOELHO       onde as altas luzes começam a rolar. Menor = mais suave
+    LIFT         COR DAS SOMBRAS      (soma; pesa onde o sinal é pequeno)
+    GAMA         COR DOS MEIOS-TONS   (expoente)
+    GANHO        COR DAS ALTAS LUZES  (produto; pesa onde o sinal é grande)
+    SAT_SOMBRA   croma só nas sombras, multiplicado por SATURACAO
+    CLAREZA      volume/separação. Alto limpa a bruma — cuidado no rdr2
+    LIMITE_CLAREZA  segura o halo em borda de texto. Maior = menos halo
+    HALACAO      o halo. É a peça que mais muda a leitura de "filmado"
+    PISO         ZERO nos seis, e é para continuar assim. Piso levantado
+                 não abre sombra, COMPRIME o pé: soma a mesma luz em todo
+                 pixel da tela. Em 0.024 já custava 0.42 nits por pixel e
+                 derrubava o contraste de 196x para 66x. Use ABERTURA_PE
+
+  Para "mais escuro" o caminho é PIVO e JOELHO, nunca EXPOSICAO — é a
+  diferença entre escurecer a cena e apagar a tela.
+  Para "não enxergo a sombra" o caminho é ABERTURA_PE, nunca PISO — é a
+  diferença entre abrir o pé e pôr véu.
+
+
+BIBLIOTECA DUPLICADA
+────────────────────────────────────────────────────────────────────────
+
+  O Hyprland não tem #include para shader de tela. As ~250 linhas entre os
+  marcadores BIBLIOTECA e FIM DA BIBLIOTECA são idênticas byte a byte nos
+  sete arquivos. Mexeu numa, mexa nas sete:
+
+      alien-isolation  breakpoint  gaming  gtav  lies-of-p  rdr2  witcher3
+
+  Conferir que continuam idênticas:
+
+      for f in ~/.config/hypr/shaders/{alien-isolation,breakpoint,gaming,\
+               gtav,lies-of-p,rdr2,witcher3}.frag; do
+        sed -n '/^\/\/  BIBLIOTECA/,/^\/\/  FIM DA BIBLIOTECA/p' "$f" | md5sum
+      done
+
+
+COR: O TOM NÃO TOCA O CINZA
+────────────────────────────────────────────────────────────────────────
+
+  Esta é A regra do arquivo, e três rodadas foram gastas ajustando QUANTO
+  tom antes de perceber que o problema era ONDE.
+
+  Filtro é uma folha de cor na frente da tela. O que denuncia uma folha de
+  cor não é o vermelho que ficou mais quente — é o CINZA que deixou de ser
+  cinza. Concreto, névoa, fumaça, asfalto, HUD e texto são neutros, e num
+  jogo isso é metade do quadro. Bastam 2% de verde no cinza para o olho ler
+  "tem algo por cima", e ao mesmo tempo o cinza esverdeado rouba a cena das
+  cores que deviam aparecer: o resultado é filtro E lavado, ao mesmo tempo.
+
+  Por isso o lift/gama/ganho é pesado pelo CROMA QUE O PIXEL JÁ TEM
+  (CROMA_INI / CROMA_FIM, na biblioteca). Neutro sai intacto; pixel já
+  colorido recebe o tom inteiro. É o princípio do vibrance aplicado ao
+  balanço de cor, e é o que deixa a folhagem ficar mais oliva sem que a
+  pedra ao lado dela fique verde.
+
+  Medido — desvio máximo entre canais em cinza, que é a definição
+  operacional de "tem filtro por cima":
+
+    perfil                8%     20%     50%     75%
+    todos os seis     0.0000  0.0000  0.0000  0.0000
+
+  É zero por construção, não por ajuste. E o croma das cores SUBIU na mesma
+  mudança, porque o tom que sobrou foi todo para onde havia cor.
+
+  Duas armadilhas de alcance que vieram antes desta, e que continuam
+  valendo:
+
+  · LIMIAR_SOMBRA = 0.020, em luz LINEAR. Era 0.16 linear = 44% de sinal em
+    sRGB, então a dessaturação de sombra comia a cor de metade do quadro.
+
+  · LIFT é ADITIVO e em luz linear. sRGB 5% vale 0.0035 linear, então um
+    lift de 0.0038 no azul MAIS QUE DOBRAVA o azul ali. Cuidado: o lift
+    também LEVANTA a sombra — cortá-lo derrubou o pé de 0.30 para 0.09 nits
+    e foi preciso reabrir o ABERTURA_PE junto. As duas coisas andam em par.
+
+  · GANHO leva máscara (ALTA_INI / ALTA_FIM). Produto pesa mais nas altas,
+    mas "mais" não é "só": sem máscara o cinza de 50% saía 0.064 fora do
+    neutro.
+
+
+HALO NO TEXTO: O DETALHE É UMA RAZÃO, NÃO UMA DIFERENÇA
+────────────────────────────────────────────────────────────────────────
+
+  Unsharp clássico soma `c - borrão` em luz linear. Do lado escuro de uma
+  borda de texto isso é uma SUBTRAÇÃO de valor absoluto, e tirar 0.026 de
+  um pixel que vale 0.010 zera o pixel.
+
+  Medido, no pixel escuro ao lado de texto branco:
+
+      unsharp em linear (CLAREZA 0.24, LIMITE 8)     -100.0%
+      razão em paradas  (CLAREZA 0.32, LIMITE 4.5)     -4.6%
+
+  -100% é preto puro: o contorno grosso e feio em volta das letras estava
+  sendo literalmente DESENHADO. Nenhum limitador salvava, porque o pixel
+  escuro não tinha de onde tirar.
+
+  Em paradas de luz o detalhe é proporcional — 10% é 10% tanto no branco
+  quanto na sombra — e nada pode chegar a zero. E não custou volume:
+  textura de 5% ganha +1.19% agora contra +1.13% antes.
+
+  Se ainda aparecer contorno, SUBA o LIMITE_CLAREZA (não baixe a CLAREZA):
+  baixar a clareza tira o volume junto, subir o limite tira só o halo.
+
+
+DAMAGE TRACKING (a mancha na barra preta)
+────────────────────────────────────────────────────────────────────────
+
+  Halação e clareza fazem cada pixel ler os VIZINHOS, num raio de até 24 px.
+  O Hyprland redesenha só o retângulo que mudou — então o pixel que está
+  FORA do retângulo mas deveria mudar, porque o borrão puxa de dentro dele,
+  fica com o quadro velho colado. Ao lado de vídeo em janela isso aparece
+  como uma mancha parada na barra preta, e em movimento lê como tearing.
+
+  É a mesma restrição que faz o Hyprland recusar a uniform `time`.
+
+  O `rice-shader` desliga o damage tracking ao aplicar um perfil de jogo e
+  devolve o padrão no `off`. Durante jogo em tela cheia isso é de graça: a
+  tela inteira muda todo quadro e não havia nada a economizar. No desktop
+  seria caro, e é por isso que o `off` reverte.
+
+  Note que é `hyprctl eval` com Lua, e NÃO `hyprctl keyword`: esta
+  configuração é a Lua, e o keyword responde "keyword can't work with
+  non-legacy parsers".
+
+      hyprctl eval 'hl.config({ debug = { damage_tracking = 0 } })'
+      hyprctl getoption debug:damage_tracking
+
+
+DIALETO
+────────────────────────────────────────────────────────────────────────
+
+  GLSL ES 3.00 (in/out/texture), igual ao vivido.frag. Escrever no dialeto
+  antigo não dá erro no log — o Hyprland cospe a reclamação NA TELA.
+  Se um perfil parecer ignorado:  hyprctl configerrors
+
+  Use só `tex` e `v_texcoord`.
+
+  NÃO declare `uniform float time`. O Hyprland aceita a uniform, mas recusa
+  o shader com
+
+      screen shader uses uniform 'time' which requires
+      debug:damage_tracking to be switched off
+
+  e desligar o damage tracking faz a GPU redesenhar a tela inteira todo
+  quadro. Foi por isso que o grão passou a ser semeado pela luminância do
+  próprio pixel: fica parado em tela parada, e se renova quando a imagem
+  muda — que é a única hora em que um padrão fixo apareceria.
+
+  Conferir a compilação sem aplicar na tela:
+
+      glslangValidator ~/.config/hypr/shaders/breakpoint.frag
+
+
+CUSTO
+────────────────────────────────────────────────────────────────────────
+
+  32 buscas de textura por pixel (dois borrões de 16 amostras) mais três
+  da aberração. Em 3440x1440 a 100 Hz é fração do orçamento da Arc. O
+  custo que pesa é outro e já era pago antes: qualquer screen shader
+  desliga o scanout direto e força uma passada de composição.

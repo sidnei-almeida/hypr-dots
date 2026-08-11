@@ -31,6 +31,12 @@ config/rice/theme.json
 # próximo pull, sem ninguém pedir.
 config/rice/current
 
+# `.ultimo-auto` guarda o nome do último tema gerado a partir de papel de
+# parede — é o que o `rice-auto` lê para apagar o anterior antes de criar o
+# próximo. É estado da máquina pelo mesmo motivo que o `current`, e chegou
+# a aparecer como arquivo novo num commit de sincronia.
+config/rice/themes/.ultimo-auto
+
 # ── Sobras ──────────────────────────────────────────────────────
 *.bak
 *.bak-*
