@@ -3,6 +3,7 @@
 #
 #   rice-shader                 mostra o perfil em vigor
 #   rice-shader lista           lista os perfis disponíveis
+#   rice-shader nomes           a mesma lista, crua, para ler por programa
 #   rice-shader <perfil>        aplica
 #   rice-shader off             volta ao vivido, o padrão do sistema
 #   rice-shader ciclo           passa para o próximo perfil de jogo
@@ -67,13 +68,32 @@ existe() { [[ -f "$SHADERS/$1.frag" ]]; }
 atual() { hyprshade current 2>/dev/null || echo ""; }
 
 lista() {
-    local a; a=$(atual)
+    local a rot; a=$(atual); rot="$(txt cli.shader.default)"
     for j in "${JOGOS[@]}"; do
         existe "$j" || continue
         [[ $j == "$a" ]] && printf '* %s\n' "$j" || printf '  %s\n' "$j"
     done
-    [[ $a == "$PADRAO" ]] && printf '* %s (%s)\n' "$PADRAO" "$(txt cli.shader.default)" \
-                          || printf '  %s (padrão)\n' "$PADRAO"
+    # O rótulo do padrão sai do dicionário nos DOIS casos. Antes, o ramo do
+    # "não está ativo" trazia "(padrão)" cravado em português, então a
+    # palavra só traduzia quando o vivido por acaso estivesse em uso.
+    [[ $a == "$PADRAO" ]] && printf '* %s (%s)\n' "$PADRAO" "$rot" \
+                          || printf '  %s (%s)\n' "$PADRAO" "$rot"
+}
+
+# Lista CRUA, um nome por linha, na ordem do ciclo e com o padrão por
+# último. É o que o painel de Aparência consome.
+#
+# Existe separada da `lista` porque as duas têm públicos incompatíveis: a
+# `lista` é para o olho — marca o ativo com `*` e traduz o rótulo do padrão
+# — e as duas coisas quebram qualquer parser. Quem lê por programa pergunta
+# o ativo em separado, com `rice-shader` sem argumento.
+#
+# Continua sem lista duplicada em dois lugares: a fonte é o mesmo vetor
+# JOGOS, filtrado pelos arquivos que existem de fato na pasta.
+nomes() {
+    local j
+    for j in "${JOGOS[@]}"; do existe "$j" && printf '%s\n' "$j"; done
+    printf '%s\n' "$PADRAO"
 }
 
 aplicar() {
@@ -111,6 +131,7 @@ ciclo() {
 case "${1:-atual}" in
     atual|"")  atual ;;
     lista)     lista ;;
+    nomes)     nomes ;;
     ciclo)     ciclo ;;
     off)       aplicar "$PADRAO" ;;
     *)         aplicar "$1" ;;
