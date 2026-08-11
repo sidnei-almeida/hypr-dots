@@ -230,7 +230,7 @@ Item {
 
                 width: emLista.width
                 height: Math.round(42 * Theme.scale)
-                radius: Math.round(8 * Theme.scale)
+                radius: Theme.raioM
                 // Elevação neutra + traço de acento à esquerda. Acento
                 // preenchendo a linha inteira pesa e cansa a vista.
                 color: index === root.selecionado
@@ -321,7 +321,7 @@ Item {
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: Math.round(3 * Theme.scale)
-                    radius: Math.round(10 * Theme.scale)
+                    radius: Theme.raioM
                     color: index === root.selecionado
                            ? Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                      PraxeConfig.colFg.b, 0.10)

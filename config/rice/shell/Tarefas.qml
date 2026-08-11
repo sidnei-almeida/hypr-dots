@@ -105,7 +105,7 @@ Item {
                 // retângulos competindo com o conteúdo das janelas de baixo.
                 Rectangle {
                     anchors.fill: parent
-                    radius: Math.round(6 * Theme.scale)
+                    radius: Theme.raioP
                     color: item.ativo   ? PraxeConfig.colAccent
                          : sonda.hovered ? PraxeConfig.colFg
                                          : "transparent"
@@ -113,7 +113,7 @@ Item {
                     // o ÍCONE. O fundo só diz "este é o da frente", e para
                     // isso não precisa de saturação nenhuma.
                     opacity: item.ativo ? 0.22 : (sonda.hovered ? 0.10 : 0)
-                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                    Behavior on opacity { NumberAnimation { duration: 120 ; easing.type: Theme.curva } }
                     Behavior on color   { ColorAnimation  { duration: 120 } }
                 }
 
@@ -130,7 +130,7 @@ Item {
                     // Aplicativo sem foco fica recuado, não apagado: ele
                     // continua sendo uma coisa que existe e se pode clicar.
                     opacity: item.ativo ? 1.0 : 0.72
-                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                    Behavior on opacity { NumberAnimation { duration: 120 ; easing.type: Theme.curva } }
                 }
 
                 // HoverHandler e não MouseArea — a nota do `rastreador` no

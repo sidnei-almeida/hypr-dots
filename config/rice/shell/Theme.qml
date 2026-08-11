@@ -92,6 +92,27 @@ Singleton {
     readonly property int   groupGap:    Math.round(16 * scale)
     readonly property int   itemGap:     Math.round(7 * scale)
 
+    // ── Geometria ──────────────────────────────────────────────
+    //
+    // Três degraus, em razão de ~1.6, e é a razão que faz a escala ler como
+    // escala: dois raios próximos demais (8 e 10) não se distinguem, então
+    // parecem o mesmo valor errado duas vezes em vez de uma decisão.
+    //
+    // Havia SETE raios soltos no shell — 4, 5, 6, 7, 8, 10 e 18 — cada um
+    // escrito no lugar onde fez falta. Nenhum estava errado sozinho; o
+    // problema é que sete valores sem relação entre si é exatamente o que
+    // o olho lê como "isto não foi desenhado, foi acontecendo".
+    //
+    //   raioP   coisa pequena dentro de outra: chip, pino, marcador
+    //   raioM   o padrão: item de lista, botão, campo
+    //   raioG   recipiente: cartão, seção, miniatura
+    //
+    // Raio de círculo continua sendo `width / 2` na peça, não daqui — ele
+    // não é uma escolha de estilo, é a definição de círculo.
+    readonly property int raioP: Math.round(6  * scale)
+    readonly property int raioM: Math.round(10 * scale)
+    readonly property int raioG: Math.round(16 * scale)
+
     // ── Tempos ─────────────────────────────────────────────────
     //
     // Aqui porque estavam em DOIS lugares e divergiram: a cápsula animava
@@ -105,6 +126,36 @@ Singleton {
     // dois movimentos onde o olho espera um.
     readonly property int   animForma:   200
     readonly property int   animCor:     150
+
+    // Três durações, pelo mesmo motivo dos três raios. O shell tinha QUINZE
+    // valores diferentes espalhados — 100, 120, 130, 140, 150, 160, 170,
+    // 180, 200, 220, 230, 260, 320 — e a nota logo acima conta o que dois
+    // valores divergentes já custaram uma vez.
+    //
+    //   animRapido  resposta ao ponteiro: realce, cor, opacidade de item
+    //   animPadrao  mudança de forma ou posição de uma peça
+    //   animLento   painel abrindo e fechando, a maior distância percorrida
+    readonly property int   animRapido:  120
+    readonly property int   animPadrao:  200
+    readonly property int   animLento:   320
+
+    // A CURVA IMPORTA MAIS QUE A DURAÇÃO, e era o que faltava: 67 das 94
+    // animações do shell não declaravam `easing.type`, e o padrão do QML é
+    // `Easing.Linear`.
+    //
+    // Movimento linear começa e para na mesma velocidade, e não existe nada
+    // assim no mundo físico — massa tem inércia. É por isso que interface
+    // linear parece barata mesmo quando tudo o mais está no lugar: o olho
+    // reconhece a mentira antes de saber nomeá-la.
+    //
+    // `OutCubic` sai rápido e assenta devagar, que é a curva certa para algo
+    // que RESPONDE a você: a peça já está quase onde deveria quando o olho
+    // chega nela. É a mesma que as poucas animações já bem-feitas daqui
+    // usavam — este token só faz o resto do shell concordar com elas.
+    //
+    // Movimento com massa (janela, cápsula) continua nas MOLAS do
+    // looknfeel.lua; isto é para o que acontece dentro da barra.
+    readonly property int   curva:       Easing.OutCubic
 
     readonly property string fontFamily:     p.fontFamily ?? "JetBrainsMono Nerd Font"
     readonly property string nerdFontFamily: fontFamily

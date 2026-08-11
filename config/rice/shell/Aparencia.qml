@@ -642,7 +642,7 @@ Item {
 
         Layout.fillWidth: true
         Layout.preferredHeight: Math.round(36 * Theme.scale)
-        radius: Math.round(8 * Theme.scale)
+        radius: Theme.raioM
         color: areaIl.containsMouse && !instalado
                ? Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g, PraxeConfig.colFg.b, 0.06)
                : "transparent"
@@ -724,7 +724,7 @@ Item {
             Layout.alignment: Qt.AlignVCenter
             implicitWidth: Math.round(14 * Theme.scale)
             implicitHeight: implicitWidth
-            radius: Math.round(4 * Theme.scale)
+            radius: Theme.raioP
             color: root.corDoPapel(sp.papel)
             border.width: 1
             // Contorno branco a 12%: sem ele um papel escuro (BG_ALT, DIM)
@@ -785,7 +785,7 @@ Item {
 
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.round(26 * Theme.scale)
-                radius: Math.round(7 * Theme.scale)
+                radius: Theme.raioP
                 color: seg.marcado
                        ? Qt.rgba(PraxeConfig.colAccent.r, PraxeConfig.colAccent.g,
                                  PraxeConfig.colAccent.b, 0.12)
@@ -1020,7 +1020,7 @@ Item {
                         Rectangle {
                             anchors.fill: parent
                             anchors.margins: Math.round(3 * Theme.scale)
-                            radius: Math.round(10 * Theme.scale)
+                            radius: Theme.raioM
                             color: cartao.atual
                                    ? Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                              PraxeConfig.colFg.b, 0.08)
@@ -1198,7 +1198,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.round(52 * Theme.scale)
-                    radius: Math.round(10 * Theme.scale)
+                    radius: Theme.raioM
                     color: Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                    PraxeConfig.colFg.b, 0.05)
                     border.width: 1
@@ -1223,7 +1223,7 @@ Item {
                     Rectangle {
                         id: mascaraPapel
                         anchors.fill: parent
-                        radius: Math.round(10 * Theme.scale)
+                        radius: Theme.raioM
                         visible: false
                         layer.enabled: true
                     }
@@ -1235,13 +1235,13 @@ Item {
                         maskSource: mascaraPapel
                         visible: imgPapel.status === Image.Ready
                         opacity: areaPapel.containsMouse ? 1.0 : 0.85
-                        Behavior on opacity { NumberAnimation { duration: 150 } }
+                        Behavior on opacity { NumberAnimation { duration: 150 ; easing.type: Theme.curva } }
                     }
 
                     // Véu escuro: sem ele o texto some em papel claro.
                     Rectangle {
                         anchors.fill: parent
-                        radius: Math.round(10 * Theme.scale)
+                        radius: Theme.raioM
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
                             GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.80) }
@@ -1267,8 +1267,8 @@ Item {
                             Layout.fillWidth: true
                             spacing: 0
                             Text {
-                                text: "Papel de parede"
-                                color: "#ffffff"
+                                text: Idioma.t("app.wallpaper")
+                                color: PraxeConfig.colFg
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSize - 1
                                 font.weight: Font.DemiBold
@@ -1336,7 +1336,7 @@ Item {
 
                                 width: Math.round(97 * Theme.scale)
                                 height: Math.round(30 * Theme.scale)
-                                radius: Math.round(8 * Theme.scale)
+                                radius: Theme.raioM
                                 color: "transparent"
                                 border.width: 1
                                 border.color: chipPapel.sel ? PraxeConfig.colAccent
@@ -1355,7 +1355,7 @@ Item {
                                     Rectangle {
                                         Layout.preferredWidth: Math.round(13 * Theme.scale)
                                         Layout.preferredHeight: Layout.preferredWidth
-                                        radius: Math.round(4 * Theme.scale)
+                                        radius: Theme.raioP
                                         color: chipPapel.cor
                                         border.width: 1
                                         border.color: Qt.rgba(1, 1, 1, 0.16)
@@ -1393,7 +1393,7 @@ Item {
                         Rectangle {
                             Layout.preferredWidth: Math.round(46 * Theme.scale)
                             Layout.preferredHeight: Math.round(32 * Theme.scale)
-                            radius: Math.round(8 * Theme.scale)
+                            radius: Theme.raioM
                             color: root.corSel
                             border.width: 1
                             border.color: Qt.rgba(1, 1, 1, 0.16)
@@ -1476,7 +1476,7 @@ Item {
                         Rectangle {
                             implicitWidth: Math.round(160 * Theme.scale)
                             implicitHeight: Math.round(24 * Theme.scale)
-                            radius: Math.round(6 * Theme.scale)
+                            radius: Theme.raioP
                             color: Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                            PraxeConfig.colFg.b, 0.06)
                             border.width: 1
@@ -1784,7 +1784,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.round(16 * Theme.scale)
-                        radius: Math.round(5 * Theme.scale)
+                        radius: Theme.raioP
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
                             GradientStop { position: 0.0; color: root.corDoPapel(PraxeConfig.bordaAtiva1 || "accent") }
@@ -2115,7 +2115,7 @@ Item {
                         Rectangle {
                             implicitWidth: Math.round(160 * Theme.scale)
                             implicitHeight: Math.round(24 * Theme.scale)
-                            radius: Math.round(6 * Theme.scale)
+                            radius: Theme.raioP
                             color: Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                            PraxeConfig.colFg.b, 0.06)
                             border.width: 1
@@ -2392,7 +2392,7 @@ Item {
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: Math.round(32 * Theme.scale)
-                            radius: Math.round(8 * Theme.scale)
+                            radius: Theme.raioM
                             color: cartaoIco.atual
                                    ? Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                              PraxeConfig.colFg.b, 0.08)
@@ -2474,7 +2474,7 @@ Item {
                         // deixaria botões mortos ainda clicáveis.
                         enabled: root.pastasRecoloriveis
                         opacity: root.pastasRecoloriveis ? 1.0 : 0.35
-                        Behavior on opacity { NumberAnimation { duration: 140 } }
+                        Behavior on opacity { NumberAnimation { duration: 140 ; easing.type: Theme.curva } }
 
                         Rectangle {
                             id: chipAuto
@@ -2483,7 +2483,7 @@ Item {
 
                             width: Math.round(62 * Theme.scale)
                             height: Math.round(24 * Theme.scale)
-                            radius: Math.round(7 * Theme.scale)
+                            radius: Theme.raioP
                             color: areaAuto.containsMouse
                                    ? Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                              PraxeConfig.colFg.b, 0.06)
@@ -2533,7 +2533,7 @@ Item {
 
                                 width: Math.round(62 * Theme.scale)
                                 height: Math.round(24 * Theme.scale)
-                                radius: Math.round(7 * Theme.scale)
+                                radius: Theme.raioP
                                 color: areaCor.containsMouse
                                        ? Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                                  PraxeConfig.colFg.b, 0.06)

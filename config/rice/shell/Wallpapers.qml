@@ -271,7 +271,7 @@ Item {
                     color: PraxeConfig.autoTema ? PraxeConfig.colAccent : PraxeConfig.colDim
                     opacity: PraxeConfig.autoTema ? 0.95 : 0.55
                     Behavior on color   { ColorAnimation  { duration: 160 } }
-                    Behavior on opacity { NumberAnimation { duration: 160 } }
+                    Behavior on opacity { NumberAnimation { duration: 160 ; easing.type: Theme.curva } }
 
                     Rectangle {
                         width: Math.round(13 * Theme.scale)
@@ -362,13 +362,13 @@ Item {
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: Math.round(4 * Theme.scale)
-                    radius: Math.round(10 * Theme.scale)
+                    radius: Theme.raioM
                     color: Theme.bgAlt
                     clip: true
 
                     border.width: index === root.selecionado ? 2 : 0
                     border.color: PraxeConfig.colAccent
-                    Behavior on border.width { NumberAnimation { duration: 120 } }
+                    Behavior on border.width { NumberAnimation { duration: 120 ; easing.type: Theme.curva } }
 
                     Image {
                         anchors.fill: parent
@@ -419,6 +419,13 @@ Item {
                             elide: Text.ElideRight
                             horizontalAlignment: Text.AlignHCenter
                             text: root.nomeDe(modelData.caminho)
+                            // Branco cravado, e é o certo aqui: este rótulo
+                            // não está sobre o fundo do tema, está sobre a
+                            // máscara preta a 60% que cobre a MINIATURA. O
+                            // que ele precisa contrastar é a foto, não a
+                            // paleta — e a foto pode ser qualquer uma.
+                            // Trocar por colFg num tema de fg amarelado
+                            // deixaria o nome ilegível sobre papel claro.
                             color: "#ffffff"
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSize - 2

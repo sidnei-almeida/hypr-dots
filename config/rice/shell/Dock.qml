@@ -523,7 +523,7 @@ PanelWindow {
         y: dock.aberto ? dock.alturaDica + dock.folga
                        : dock.height - Math.round(3 * Theme.scale)
 
-        radius: Math.round(18 * Theme.scale)
+        radius: Theme.raioG
         color: PraxeConfig.colBgDock
 
         // SEM borda, e não é esquecimento.
@@ -541,7 +541,7 @@ PanelWindow {
 
         opacity: dock.aberto ? 1 : 0
         Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
-        Behavior on opacity { NumberAnimation { duration: 200 } }
+        Behavior on opacity { NumberAnimation { duration: 200 ; easing.type: Theme.curva } }
         Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
         // Havia aqui um "fio de luz" no topo: 1px branco a 6%, para simular
@@ -604,7 +604,7 @@ PanelWindow {
 
         width: dicaTxt.width + Math.round(18 * Theme.scale)
         height: dicaTxt.implicitHeight + Math.round(9 * Theme.scale)
-        radius: Math.round(8 * Theme.scale)
+        radius: Theme.raioM
         color: PraxeConfig.colBgDock
         border.width: 1
         border.color: PraxeConfig.colBorder
@@ -625,7 +625,7 @@ PanelWindow {
             Behavior on y { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
         }
 
-        Behavior on opacity { NumberAnimation { duration: 140 } }
+        Behavior on opacity { NumberAnimation { duration: 140 ; easing.type: Theme.curva } }
         Behavior on x { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
 
         Text {
@@ -801,7 +801,7 @@ PanelWindow {
                 radius: Math.round(width * 0.3)
                 color: PraxeConfig.colFg
                 opacity: ic.realce ? 0.09 : 0
-                Behavior on opacity { NumberAnimation { duration: 140 } }
+                Behavior on opacity { NumberAnimation { duration: 140 ; easing.type: Theme.curva } }
             }
 
             Item {
@@ -874,10 +874,10 @@ PanelWindow {
                     saturation: dock.satIcone
                     brightness: dock.brilhoIcone
 
-                    Behavior on colorization { NumberAnimation { duration: 220 } }
+                    Behavior on colorization { NumberAnimation { duration: 220 ; easing.type: Theme.curva } }
                     Behavior on colorizationColor { ColorAnimation { duration: 320 } }
-                    Behavior on saturation { NumberAnimation { duration: 220 } }
-                    Behavior on brightness { NumberAnimation { duration: 220 } }
+                    Behavior on saturation { NumberAnimation { duration: 220 ; easing.type: Theme.curva } }
+                    Behavior on brightness { NumberAnimation { duration: 220 ; easing.type: Theme.curva } }
                 }
     
                 // Último recurso: a inicial do nome.
