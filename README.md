@@ -131,7 +131,7 @@ RICE_SO_DECOR=1 rice-theme set <tema>   # 0,10 s
 hypr-dots/
 ├── install.sh              instalação numa máquina limpa
 ├── config/
-│   ├── hypr/               Hyprland em Lua, hypridle, 7 shaders de tela
+│   ├── hypr/               Hyprland em Lua, hypridle, 8 shaders de tela
 │   ├── rice/
 │   │   ├── themes/         paletas, uma por arquivo, fábrica e derivadas
 │   │   ├── shell/          a barra em Quickshell (20 arquivos, 8.7k linhas)
@@ -203,6 +203,28 @@ rice-theme set nord      # direto
 rice-theme current       # qual está em uso
 rice-cores               # clonar e editar cor a cor
 ```
+
+### O seletor mostra o tema, não descreve
+
+No painel de Aparência cada tema é a **própria miniatura**: o papel de
+parede ao fundo, as cores por cima. O papel é metade da identidade de um
+tema — `Maré` e `Nord` têm paleta fria parecida e papéis que ninguém
+confunde — e escolher por nome e cinco bolinhas era adivinhar.
+
+Duas decisões que só apareceram com a coisa na tela:
+
+- **O degradê sobe tarde e forte** — nada até 40% da altura, e daí fecha
+  rápido. Com uma rampa suave o nome sumia no `Catppuccin` (dragão rosa
+  claro) e no `Gruvbox` (robô sobre bege). Um seletor em que não se lê o
+  nome do tema claro é pior que o cartão de bolinhas que ele substituiu.
+- **Saiu a bolinha do `bg`.** O véu do cartão já *é* o `bg` do tema, então
+  aquela bolinha era um buraco em todos os sete.
+
+As miniaturas são **pré-carregadas no arranque da barra**, e a peça que faz
+isso funcionar é uma constante: o Qt indexa o cache por `(caminho,
+sourceSize)`, então largura diferente é outra entrada. Enquanto o cartão
+pedia uma largura derivada do layout — que no arranque nem tem valor —
+qualquer pré-carga erraria a chave por construção.
 
 ### Tema derivado do papel de parede
 
@@ -296,6 +318,7 @@ ganhar uma cor nova, ela entra sozinha.
 | `rice-keyring` | Faz o desbloqueio da tela destravar o cofre de senhas |
 | `rice-brilho` | Brilho do monitor por DDC/CI, para quem não tem backlight |
 | `rice-vivido` | Realce de cor por shader, na tela inteira |
+| `rice-shader` | Perfil de cor de tela por jogo (7 perfis + o padrão) |
 | `rice-icons` · `rice-folders` | Tema de ícones e cor das pastas |
 | `rice-screenshot` · `rice-record` · `rice-ocr` | Captura, gravação e texto de imagem |
 | `rice-keybindings` | Lista todos os atalhos |
@@ -369,7 +392,60 @@ uma fila e o brilho chegaria segundos depois do dedo.
 
 ---
 
-## Desenho: três regras que apareceram na prática
+## Perfis de cor de tela, por jogo
+
+Sete perfis em `config/hypr/shaders/`, aplicados por `rice-shader` ou por
+**SUPER+ALT+1..7**. São graduações de cor completas, não filtros: trabalham
+em **luz linear**, com contraste em espaço log e uma curva com pé, reta e
+ombro — mais halação, grão, clareza e dither.
+
+| Perfil | Leitura |
+|---|---|
+| `gaming` | Genérico, para jogo que ainda não tem o seu |
+| `lies-of-p` | Krat: lampião a gás contra pedra fria |
+| `breakpoint` | Auroa: oliva tático, croma baixo, clareza alta |
+| `witcher3` | Terroso e pictórico, o de croma mais alto |
+| `rdr2` | Faroeste: bruma preservada, halo largo |
+| `gtav` | Los Santos: contraste alto, bleach bypass |
+| `alien-isolation` | O filme de 1979: sódio contra ciano, grão de 5247 |
+
+**O `gaming` não tem cor nenhuma, e isso é literal:** lift, gama e ganho
+são a identidade matemática, então não há tom que possa vazar. Ele só
+devolve a sombra que o painel engole e sobe o croma pelo vibrance.
+
+### Três coisas que custaram uma versão cada
+
+**O tom não pode tocar o cinza.** Filtro é uma folha de cor na frente da
+tela, e o que denuncia uma folha de cor não é o vermelho mais quente — é o
+cinza que deixou de ser cinza. Concreto, névoa, fumaça, HUD e texto são
+neutros, e num jogo isso é metade do quadro. Por isso o balanço de cor é
+pesado pelo **croma que o pixel já tem**: neutro sai intacto. Medido, o
+desvio entre canais no cinza é `0.0000` nos sete perfis.
+
+**A gama da tela estava depois do shader.** O modo Cinema deste monitor
+segue a BT.1886 (≈2.4) e o jogo manda sRGB (≈2.2). Era essa diferença que
+fazia o preto sumir — e nenhum ajuste de sombra dentro do shader resolvia,
+porque o problema não estava dentro dele.
+
+**Contraste em torno de um pivô é uma reta**, então todo ganho de contraste
+é pago com detalhe de sombra. Baixar o pivô só troca o problema de lugar:
+os meios-tons iam a 75 nits contra os 54 corretos. Quem resolve é o **pé**
+da curva, que age só abaixo do calcanhar e mapeia 0 em 0.
+
+### Por que o `rice-shader` desliga o damage tracking
+
+Halação e clareza fazem cada pixel ler os **vizinhos**. O Hyprland redesenha
+só o retângulo que mudou, então o pixel de fora que deveria mudar — porque o
+borrão puxa de dentro dele — fica com o quadro velho colado. Ao lado de
+vídeo em janela isso aparece como mancha parada.
+
+Em jogo de tela cheia desligar não custa nada: a tela inteira muda todo
+quadro e não havia o que economizar. Por isso o `rice-shader off` devolve o
+padrão.
+
+---
+
+## Desenho: quatro regras que apareceram na prática
 
 **O que separa não precisa ser desenhado.** A cápsula tinha seis filetes
 de 1px entre os grupos de módulos, e os botões do centro de controle tinham
@@ -390,6 +466,21 @@ pontos de área usavam `Easing.OutBack`, que passa do alvo e volta. E como
 o Hyprland destrói área vazia, cada troca de área recriava pontos que
 renasciam quicando. O overshoot ficou só onde há um dedo envolvido: hover
 no dock, pressão no controle deslizante, seleção de papel de parede.
+
+**A curva importa mais que a duração.** Uma auditoria achou **67 das 94**
+animações do shell sem `easing.type` declarado — e o padrão do QML é
+`Easing.Linear`. Movimento linear começa e para na mesma velocidade, e não
+existe nada assim no mundo físico: massa tem inércia. É por isso que
+interface linear parece barata mesmo com todo o resto no lugar, e o olho
+reconhece a mentira antes de saber nomeá-la.
+
+Junto veio a geometria. Havia sete raios soltos — 4, 5, 6, 7, 8, 10 e 18 —
+cada um escrito onde fez falta. Nenhum errado sozinho, mas sete valores sem
+relação entre si é o que se lê como *"isto não foi desenhado, foi
+acontecendo"*. Viraram três degraus em razão de ~1.6 (`raioP` · `raioM` ·
+`raioG`), e é a razão que faz a escala ler como escala: 8 e 10 são próximos
+demais para se distinguirem, então pareciam o mesmo valor errado duas
+vezes.
 
 ---
 
