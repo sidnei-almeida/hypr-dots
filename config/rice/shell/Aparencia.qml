@@ -114,6 +114,52 @@ Item {
                    : (paleta[papelSel] !== undefined ? Qt.color("#" + paleta[papelSel])
                                                      : Qt.color("#888888"))
 
+    // ── Perfis de tela por jogo ─────────────────────────────────
+    //
+    // A lista NÃO está escrita aqui, e é de propósito: os perfis são os
+    // .frag de ~/.config/hypr/shaders, e criar um arquivo lá já o torna
+    // aplicável. Manter a lista também no QML significaria que todo perfil
+    // novo aparece no atalho de teclado e some do painel, sem erro nenhum
+    // para denunciar. Quem responde é o `rice-shader nomes`.
+    //
+    // O ativo vem de uma chamada separada porque não é config nossa: é
+    // estado do hyprshade, que muda por atalho de teclado e por linha de
+    // comando sem passar por aqui.
+    property var    perfisShader: []
+    property string shaderAtual:  ""
+
+    Process {
+        id: lerPerfisShader
+        command: [PraxeConfig.bin + "rice-shader", "nomes"]
+        stdout: StdioCollector {
+            onStreamFinished: root.perfisShader = text.trim().split("\n").filter(l => l !== "")
+        }
+    }
+
+    Process {
+        id: lerShaderAtual
+        command: [PraxeConfig.bin + "rice-shader"]
+        stdout: StdioCollector { onStreamFinished: root.shaderAtual = text.trim() }
+    }
+
+    // Aplica e relê. Reler não é paranoia: o `rice-shader` RECUSA um perfil
+    // que o Hyprland não aceitou e volta sozinho para o padrão, então o que
+    // ficou na tela pode não ser o que foi pedido.
+    function trocarShader(passo) {
+        const n = root.perfisShader.length
+        if (n === 0) return
+        let i = root.perfisShader.indexOf(root.shaderAtual)
+        if (i < 0) i = 0
+        acaoShader.command = [PraxeConfig.bin + "rice-shader",
+                              root.perfisShader[(i + passo + n) % n]]
+        acaoShader.running = true
+    }
+
+    Process {
+        id: acaoShader
+        onExited: lerShaderAtual.running = true
+    }
+
     Process {
         id: lerCores
         command: [PraxeConfig.bin + "rice-cores", "mostrar"]
@@ -267,6 +313,7 @@ Item {
         lerCoresPasta.running = true
         lerLojaFontes.running = true; lerLojaIcones.running = true
         lerCores.running = true
+        lerPerfisShader.running = true; lerShaderAtual.running = true
     }
 
     Component.onCompleted: recarregar()
@@ -1806,6 +1853,34 @@ Item {
                                                  String(Math.min(100, PraxeConfig.vivido + 5))])
                         }
                     }
+
+                    Separador {}
+
+                    // Fica logo abaixo do realce porque as duas coisas são o
+                    // MESMO recurso do Hyprland — um shader de tela, e só um
+                    // por vez. Escolher um perfil de jogo substitui o realce;
+                    // separá-las em abas diferentes esconderia isso.
+                    Titulo { text: Idioma.t("shader.title") }
+
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: Idioma.t("shader.desc")
+                        color: PraxeConfig.colMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSize - 3
+                    }
+
+                    Seletor {
+                        // O nome do arquivo, cru. Um rótulo bonito por perfil
+                        // teria de morar aqui, e aí a pasta de shaders
+                        // deixaria de ser a única fonte da lista.
+                        valor: root.shaderAtual
+                        onAnterior: root.trocarShader(-1)
+                        onProximo:  root.trocarShader(1)
+                    }
+
+                    Nota { text: Idioma.t("shader.hint") }
 
                     Separador {}
 
