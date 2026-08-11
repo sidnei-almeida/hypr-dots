@@ -60,6 +60,42 @@ Item {
     }
     readonly property bool temMidia: player !== null
 
+    // ── Posição da faixa ────────────────────────────────────────
+    //
+    // Puxada por relógio, e não por binding, porque o MPRIS não avisa que o
+    // tempo passou: `positionChanged` existe como SINAL e não como método,
+    // então não há como pedir uma atualização. O protocolo só emite quando
+    // alguém SALTA na faixa — tocar do começo ao fim não gera evento nenhum.
+    //
+    // Meio segundo é o intervalo certo aqui: a barra tem alguns milímetros,
+    // e num player de três minutos cada amostra move menos de um pixel. Ler
+    // mais rápido gastaria acordar a barra à toa; mais devagar faria a linha
+    // andar aos saltos visíveis.
+    //
+    // O relógio só corre com algo TOCANDO. Pausado, a posição não muda, e um
+    // temporizador acordando a cada meio segundo para reler o mesmo número é
+    // exatamente o tipo de coisa que faz barra de status ter fama de pesada.
+    property real posicao: 0
+    readonly property real duracao: player?.lengthSupported ? (player?.length ?? 0) : 0
+
+    Timer {
+        running: root.temMidia && (root.player?.isPlaying ?? false)
+                 && (root.player?.positionSupported ?? false)
+        interval: 500
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.posicao = root.player?.position ?? 0
+    }
+
+    // Trocou de faixa: zera na hora, sem esperar o próximo tique. Sem isto a
+    // barra da música nova começaria mostrando o ponto em que a anterior
+    // parou, por até meio segundo.
+    Connections {
+        target: root.player ?? null
+        enabled: root.temMidia
+        function onTrackTitleChanged() { root.posicao = 0 }
+    }
+
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property bool audioPronto: sink !== null && sink.ready === true
 
@@ -127,6 +163,51 @@ Item {
                     color: PraxeConfig.colMuted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSize - 1
+                }
+
+                // ── Onde a faixa está ───────────────────────────
+                //
+                // Dava para ver O QUE toca e não ONDE está. Num player de
+                // 46px de capa, uma linha de 3px é a informação inteira:
+                // faltam trinta segundos ou faltam vinte minutos.
+                //
+                // Aparece só quando o player informa duração. Rádio e
+                // transmissão ao vivo não informam, e uma barra parada em
+                // zero seria pior que barra nenhuma — diria que o player
+                // travou.
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Math.round(5 * Theme.scale)
+                    implicitHeight: Math.round(3 * Theme.scale)
+                    radius: height / 2
+                    visible: root.duracao > 0
+                    color: Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
+                                   PraxeConfig.colFg.b, 0.14)
+
+                    Rectangle {
+                        width: parent.width * Math.max(0, Math.min(1, root.posicao / root.duracao))
+                        height: parent.height
+                        radius: height / 2
+                        color: PraxeConfig.colAccent
+                        // Sem Behavior: a posição já chega de meio em meio
+                        // segundo pelo relógio, e animar entre amostras
+                        // faria a barra correr atrás do próprio passo.
+                    }
+
+                    // Clicar salta na faixa, quando o player deixa. Sem
+                    // pino: alvo de 3px seria cruel, e a área de clique
+                    // aqui é a linha inteira.
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -6
+                        enabled: (root.player?.canSeek ?? false) && root.duracao > 0
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: mouse => {
+                            const alvo = Math.max(0, Math.min(1, mouse.x / width)) * root.duracao
+                            root.player.position = alvo
+                            root.posicao = alvo
+                        }
+                    }
                 }
             }
 
@@ -246,6 +327,17 @@ Item {
                     height: parent.height
                     radius: height / 2
                     color: PraxeConfig.colAccent
+
+                    // Só desliza quando a mudança vem DE FORA — tecla de
+                    // mídia, roda do mouse, outro aplicativo. Com o dedo no
+                    // controle a animação vira atraso: o preenchimento
+                    // persegue o ponteiro e chega sempre depois dele, que é
+                    // a sensação de controle emperrado.
+                    Behavior on width {
+                        enabled: !area.pressed
+                        NumberAnimation { duration: Theme.animRapido
+                                          easing.type: Theme.curva }
+                    }
                 }
             }
 
@@ -256,10 +348,26 @@ Item {
                 height: width
                 radius: width / 2
                 color: PraxeConfig.colAccent
+
+                // ANEL DA COR DO FUNDO, e é o que faz o pino existir.
+                //
+                // Pino e preenchimento eram os dois `colAccent`. Como o pino
+                // fica sempre na fronteira entre o que está preenchido e o
+                // que não está, metade dele cai sobre acento — ou seja, ele
+                // desaparecia justamente na metade que importa, e o controle
+                // parecia uma barra que enche sozinha sem nada para agarrar.
+                //
+                // Um anel de 2px da cor do painel separa os dois sem
+                // introduzir cor nova nenhuma na paleta.
+                border.width: Math.round(2 * Theme.scale)
+                border.color: Theme.bg
+
                 // Cresce sob o dedo: confirma que o controle PEGOU o gesto,
                 // que é exatamente a informação que faltava quando ele não
-                // pegava e nada acontecia.
-                scale: area.pressed ? 1.25 : 1.0
+                // pegava e nada acontecia. E cresce um pouco ao passar o
+                // ponteiro, antes de qualquer clique — é o que anuncia que
+                // ali há algo para pegar.
+                scale: area.pressed ? 1.25 : (area.containsMouse ? 1.12 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
             }
 
