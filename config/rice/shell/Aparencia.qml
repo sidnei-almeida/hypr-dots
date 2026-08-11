@@ -182,12 +182,12 @@ Item {
         command: ["bash", "-c",
             "for f in \"$HOME\"/.config/rice/themes/*.sh; do " +
             "  [ -e \"$f\" ] || continue; " +
-            "  ( NAME=''; BG=''; ACCENT=''; ACCENT2=''; OK=''; ERR=''; PROPRIO=''; " +
+            "  ( NAME=''; BG=''; ACCENT=''; ACCENT2=''; OK=''; ERR=''; PROPRIO=''; WALLPAPER=''; " +
             "    . \"$f\"; " +
             "    b=$(basename \"$f\" .sh); " +
-            "    printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' " +
+            "    printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' " +
             "      \"$b\" \"${NAME:-$b}\" \"$BG\" \"$ACCENT\" \"$ACCENT2\" \"$OK\" \"$ERR\" " +
-            "      \"${PROPRIO:+1}\" ); " +
+            "      \"${PROPRIO:+1}\" \"$WALLPAPER\" ); " +
             "done | sort"]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -206,7 +206,18 @@ Item {
                         // undefined, e `!!undefined` já daria false — mas
                         // deixar explícito evita que alguém "simplifique"
                         // para `c[7]` e passe a tratar "" como verdadeiro.
-                        proprio: c[7] === "1"
+                        proprio: c[7] === "1",
+
+                        // Papel de parede do tema, já resolvido em caminho
+                        // absoluto. O tema guarda só o NOME do arquivo
+                        // (`nord-lua.jpg`), porque a pasta de imagens depende
+                        // do idioma do sistema e cravá-la no tema quebraria o
+                        // arquivo ao mudar de locale — a mesma regra do resto
+                        // do rice. Caminho absoluto no tema também é aceito,
+                        // para papel que mora fora da pasta padrão.
+                        papel: !c[8] ? ""
+                               : (c[8].charAt(0) === "/" ? c[8]
+                                  : PraxeConfig.wallpaperDir + "/" + c[8])
                     })
                 }
                 root.temas = lista
@@ -1008,7 +1019,13 @@ Item {
                     clip: true
                     model: root.temas
                     cellWidth: Math.floor(width / 2)
-                    cellHeight: Math.round(52 * Theme.scale)
+                    // 96 e não os 52 de antes: o cartão deixou de ser uma
+                    // linha de texto com bolinhas e passou a ser a
+                    // MINIATURA do tema — papel de parede ao fundo, cores
+                    // por cima. Numa faixa de 52px o papel viraria borrão
+                    // sem informação nenhuma; abaixo de ~80px nenhuma foto
+                    // se reconhece.
+                    cellHeight: Math.round(96 * Theme.scale)
 
                     delegate: Item {
                         id: cartao
@@ -1032,8 +1049,88 @@ Item {
                             border.color: cartao.atual ? PraxeConfig.colAccent : PraxeConfig.colDim
                             Behavior on color { ColorAnimation { duration: 130 } }
 
-                            RowLayout {
+                            // ── A miniatura ─────────────────────────
+                            //
+                            // O papel de parede é metade da identidade de um
+                            // tema, e o cartão mostrava só a outra metade.
+                            // Quem escolhe tema pelo nome e cinco bolinhas
+                            // está adivinhando: `mare` e `nord` têm paleta
+                            // fria parecida e papéis que não se confundem.
+                            //
+                            // `clip` no Rectangle de fora é o que faz a
+                            // imagem respeitar o raio do cartão.
+                            clip: true
+
+                            Image {
                                 anchors.fill: parent
+                                source: cartao.modelData.papel
+                                        ? "file://" + cartao.modelData.papel : ""
+                                visible: status === Image.Ready
+                                fillMode: Image.PreserveAspectCrop
+                                // Assíncrono e reamostrado: são sete fotos,
+                                // várias em 4K, e carregá-las no tamanho
+                                // original travaria a abertura do painel por
+                                // um cartão de 100px de largura.
+                                asynchronous: true
+                                sourceSize.width: Math.round(grade.cellWidth * 2)
+                                opacity: cartao.atual ? 1.0
+                                       : (areaCard.containsMouse ? 0.92 : 0.72)
+                                Behavior on opacity {
+                                    NumberAnimation { duration: Theme.animRapido
+                                                      easing.type: Theme.curva }
+                                }
+                            }
+
+                            // Véu de baixo para cima. Sem ele o nome fica
+                            // sobre foto arbitrária e some em metade dos
+                            // temas — e é justamente o `bg` do tema, então
+                            // o degradê também MOSTRA a cor de fundo dele.
+                            Rectangle {
+                                anchors.fill: parent
+                                // As paradas foram medidas contra o pior caso,
+                                // e o pior caso existe: o papel do Catppuccin
+                                // é um dragão rosa claro e o do Gruvbox tem um
+                                // robô sobre fundo bege. Com o degradê fraco
+                                // que estava aqui, o nome desses dois sumia —
+                                // e um seletor em que você não lê o nome do
+                                // tema claro é pior que o cartão de bolinhas
+                                // que ele veio substituir.
+                                //
+                                // A rampa sobe tarde e forte: até 40% da
+                                // altura a foto aparece quase limpa, e daí
+                                // para baixo fecha rápido. É o oposto de um
+                                // degradê linear, que escureceria a foto
+                                // inteira para proteger duas linhas de texto.
+                                gradient: Gradient {
+                                    GradientStop { position: 0.0
+                                        color: Qt.rgba(Qt.color(cartao.modelData.bg).r,
+                                                       Qt.color(cartao.modelData.bg).g,
+                                                       Qt.color(cartao.modelData.bg).b, 0.00) }
+                                    GradientStop { position: 0.40
+                                        color: Qt.rgba(Qt.color(cartao.modelData.bg).r,
+                                                       Qt.color(cartao.modelData.bg).g,
+                                                       Qt.color(cartao.modelData.bg).b, 0.20) }
+                                    GradientStop { position: 0.68
+                                        color: Qt.rgba(Qt.color(cartao.modelData.bg).r,
+                                                       Qt.color(cartao.modelData.bg).g,
+                                                       Qt.color(cartao.modelData.bg).b, 0.80) }
+                                    GradientStop { position: 1.0
+                                        color: Qt.rgba(Qt.color(cartao.modelData.bg).r,
+                                                       Qt.color(cartao.modelData.bg).g,
+                                                       Qt.color(cartao.modelData.bg).b, 0.98) }
+                                }
+                            }
+
+                            // Ancorado EMBAIXO, não centralizado. Com o cartão
+                            // virando miniatura, texto no meio da foto fica
+                            // sobre a parte mais informativa dela e ainda
+                            // exige véu forte no cartão inteiro. Embaixo, o
+                            // véu só precisa cobrir a faixa que o texto
+                            // ocupa — e a foto respira em cima.
+                            RowLayout {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
                                 anchors.leftMargin: Math.round(10 * Theme.scale)
                                 // Folga maior à direita: os dois cantos
                                 // daquele lado são ocupados agora (indicador
@@ -1041,6 +1138,7 @@ Item {
                                 // nome de um tema longo passaria por baixo
                                 // deles em vez de ser encurtado.
                                 anchors.rightMargin: Math.round(28 * Theme.scale)
+                                anchors.bottomMargin: Math.round(8 * Theme.scale)
                                 spacing: Math.round(8 * Theme.scale)
 
                                 ColumnLayout {
@@ -1054,12 +1152,27 @@ Item {
                                         color: PraxeConfig.colFg
                                         font.family: Theme.fontFamily
                                         font.pixelSize: Theme.fontSize - 1
+                                        // Semibold porque agora o nome está
+                                        // sobre FOTO, não sobre fundo liso.
+                                        // Traço fino sobre imagem some nas
+                                        // partes texturizadas mesmo com véu:
+                                        // o que salva legibilidade sobre
+                                        // ruído é peso, não tamanho.
+                                        font.weight: Font.DemiBold
                                     }
 
                                     RowLayout {
                                         spacing: Math.round(4 * Theme.scale)
+                                        // Sem o `bg` na fileira, e ele estava
+                                        // aqui desde antes da miniatura. O
+                                        // véu do cartão JÁ É o bg do tema, e
+                                        // uma bolinha da cor do fundo sobre o
+                                        // próprio fundo é um buraco: some em
+                                        // todos os sete. O que sobra são as
+                                        // cores que o tema usa para FALAR —
+                                        // acento, acento 2, ok e erro.
                                         Repeater {
-                                            model: [cartao.modelData.bg, cartao.modelData.accent,
+                                            model: [cartao.modelData.accent,
                                                     cartao.modelData.accent2, cartao.modelData.ok,
                                                     cartao.modelData.err]
                                             delegate: Rectangle {
