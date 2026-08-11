@@ -333,8 +333,22 @@ Item {
     // depois, já sem lembrar do primeiro — apagaria de imediato.
     onAbertoChanged: {
         apagandoTema = ""
-        if (aberto) recarregar()
+        if (aberto) { recarregar(); entradaEpoca++ }
     }
+
+    // Contador de ABERTURAS, e é o que faz a entrada dos cartões de tema
+    // acontecer mais de uma vez na vida.
+    //
+    // Este painel é criado UMA vez, no arranque da barra, e abrir e fechar
+    // só troca a opacidade dele. Então `Component.onCompleted` num delegado
+    // dispara enquanto ninguém está olhando e nunca mais — a animação
+    // existiria no código e não na tela, que é o pior tipo de recurso
+    // morto: aquele que parece pronto.
+    //
+    // Os delegados observam este número e reiniciam a entrada quando ele
+    // muda. Contador e não booleano: dois `true` seguidos não emitem sinal
+    // de mudança, e reabrir o painel na mesma sessão precisa disparar.
+    property int entradaEpoca: 0
 
     // ── Ações ───────────────────────────────────────────────────
     Process { id: acao }
@@ -1030,9 +1044,63 @@ Item {
                     delegate: Item {
                         id: cartao
                         required property var modelData
+                        required property int index
                         width: grade.cellWidth
                         height: grade.cellHeight
                         readonly property bool atual: modelData.arquivo === root.temaAtual
+
+                        // ── Entrada escalonada ──────────────────
+                        //
+                        // Os cartões entram um a um, ~28ms de atraso entre
+                        // vizinhos. É a única coisa aqui que existe só para
+                        // ser bonita, e vale a pena por um motivo prático:
+                        // aparecendo todos no mesmo quadro, sete fotos de
+                        // uma vez são uma parede, e o olho não sabe por onde
+                        // começar. Em cascata ele é conduzido do primeiro ao
+                        // último e lê a grade como lista.
+                        //
+                        // O atraso é limitado a oito posições. Sem o teto,
+                        // uma pasta com quarenta temas faria o último cartão
+                        // esperar mais de um segundo — animação de entrada
+                        // que se faz esperar deixa de ser entrada e vira
+                        // travamento.
+                        //
+                        // OutBack com overshoot CURTO (0.8; o padrão é 1.7):
+                        // o cartão passa um fio do tamanho final e volta. É
+                        // o que dá o assentar de coisa com massa. Overshoot
+                        // cheio num cartão de 96px daria pulo de brinquedo.
+                        opacity: 0
+                        scale: 0.96
+
+                        // Reinicia a cada abertura do painel — ver
+                        // `entradaEpoca` lá em cima.
+                        Connections {
+                            target: root
+                            function onEntradaEpocaChanged() { entrada.restart() }
+                        }
+
+                        SequentialAnimation {
+                            id: entrada
+                            running: true
+                            // Volta ao estado inicial ANTES de cada corrida.
+                            // Sem isto, a segunda abertura encontraria o
+                            // cartão já em opacidade 1 e não haveria entrada
+                            // nenhuma para ver.
+                            PropertyAction { target: cartao; property: "opacity"; value: 0 }
+                            PropertyAction { target: cartao; property: "scale";   value: 0.96 }
+                            PauseAnimation { duration: Math.min(cartao.index, 8) * 28 }
+                            ParallelAnimation {
+                                NumberAnimation {
+                                    target: cartao; property: "opacity"; to: 1
+                                    duration: 220; easing.type: Theme.curva
+                                }
+                                NumberAnimation {
+                                    target: cartao; property: "scale"; to: 1
+                                    duration: 260
+                                    easing.type: Easing.OutBack; easing.overshoot: 0.8
+                                }
+                            }
+                        }
 
                         Rectangle {
                             anchors.fill: parent
