@@ -85,7 +85,7 @@ Item {
             Rectangle {
                 Layout.preferredWidth: Math.round(46 * Theme.scale)
                 Layout.preferredHeight: Layout.preferredWidth
-                radius: Math.round(8 * Theme.scale)
+                radius: Theme.raioM
                 color: Qt.rgba(PraxeConfig.colFg.r, PraxeConfig.colFg.g,
                                PraxeConfig.colFg.b, 0.05)
                 clip: true
@@ -564,7 +564,7 @@ Item {
 
                 width: listaNotif.width
                 height: Math.round(44 * Theme.scale)
-                radius: Math.round(10 * Theme.scale)
+                radius: Theme.raioM
 
                 // Véu translúcido sobre o próprio fundo, não um cinza
                 // opaco. Em tema escuro, superfície opaca mais clara vira

@@ -281,7 +281,7 @@ GridLayout {
                 // continuaria compondo mesmo a zero, e são vários pontos.
                 opacity: dot.comNumero ? 1 : 0
                 visible: opacity > 0
-                Behavior on opacity { NumberAnimation { duration: 180 } }
+                Behavior on opacity { NumberAnimation { duration: 180 ; easing.type: Theme.curva } }
             }
 
             // ── Traço de salto ──────────────────────────────────
@@ -337,7 +337,7 @@ GridLayout {
             opacity: 0
             scale: 0.8
             Component.onCompleted: { opacity = 1; scale = 1 }
-            Behavior on opacity { NumberAnimation { duration: Theme.animForma } }
+            Behavior on opacity { NumberAnimation { duration: Theme.animForma ; easing.type: Theme.curva } }
             Behavior on scale {
                 NumberAnimation { duration: Theme.animForma; easing.type: Easing.OutCubic }
             }

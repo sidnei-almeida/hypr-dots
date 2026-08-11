@@ -577,7 +577,7 @@ ShellRoot {
             border.width: 0
 
             Behavior on color   { ColorAnimation  { duration: bar.animCor } }
-            Behavior on opacity { NumberAnimation { duration: bar.animCor } }
+            Behavior on opacity { NumberAnimation { duration: bar.animCor ; easing.type: Theme.curva } }
 
             // NÃO anime o `x`.
             //
@@ -675,7 +675,7 @@ GridLayout {
 
                 opacity: (bar.expandido || bar.emOsd || bar.emBalao || bar.colapsada) ? 0 : 1
                 visible: opacity > 0
-                Behavior on opacity { NumberAnimation { duration: 200 } }
+                Behavior on opacity { NumberAnimation { duration: 200 ; easing.type: Theme.curva } }
 
                 // O símbolo do Arch, tingido AO VIVO com a cor em vigor.
                 //
@@ -726,7 +726,7 @@ GridLayout {
                         opacity: menuArea.containsMouse ? 1.0 : 0.85
 
                         Behavior on colorizationColor { ColorAnimation { duration: 320 } }
-                        Behavior on opacity { NumberAnimation { duration: 150 } }
+                        Behavior on opacity { NumberAnimation { duration: 150 ; easing.type: Theme.curva } }
                     }
 
                     // Sem `Process` aqui, de propósito — ver a nota longa no
@@ -949,7 +949,7 @@ GridLayout {
 
                 // Entra depois que a barra terminou de encolher, senão o
                 // texto aparece em cima de uma cápsula ainda larga.
-                Behavior on opacity { NumberAnimation { duration: 220 } }
+                Behavior on opacity { NumberAnimation { duration: 220 ; easing.type: Theme.curva } }
 
                 // Os pontos de workspace JÁ ESTIVERAM aqui, e saíram.
                 //
@@ -969,7 +969,7 @@ GridLayout {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: Qt.formatDateTime(relogioIlhaFonte.date, PraxeConfig.clockFormat)
-                    color: "#ffffff"
+                    color: PraxeConfig.colFg
                     font.family: Theme.fontFamily
                     font.pixelSize: Math.round(Theme.fontSize - 3)
                     font.weight: Font.Medium
@@ -998,7 +998,7 @@ GridLayout {
                     visible: PraxeConfig.showWeatherFilete === true
                              && clima.temValor === true
                     text: clima.glifo + " " + clima.temp + "°"
-                    color: "#ffffff"
+                    color: PraxeConfig.colFg
                     font.family: Theme.nerdFontFamily
                     font.pixelSize: Math.round(Theme.fontSize - 3)
                     font.weight: Font.Medium
@@ -1033,7 +1033,7 @@ GridLayout {
 
                     // Sem animação de entrada: um ponto que pulsa no topo
                     // da tela vira o assunto, e ele é um rodapé.
-                    Behavior on opacity { NumberAnimation { duration: 180 } }
+                    Behavior on opacity { NumberAnimation { duration: 180 ; easing.type: Theme.curva } }
                 }
             }
 
@@ -1064,7 +1064,7 @@ GridLayout {
                          ? 1 : 0
                 visible: opacity > 0.01
 
-                color: "#ffffff"
+                color: PraxeConfig.colFg
                 font.family: Theme.fontFamily
                 // Um passo maior que a hora: é um caractere só e aparece
                 // por um segundo, então precisa ser pego sem procurar.
@@ -1076,7 +1076,7 @@ GridLayout {
                 // movimento da própria troca de área e precisa chegar
                 // junto; a saída não tem pressa e some sem chamar atenção.
                 Behavior on opacity {
-                    NumberAnimation { duration: bar.mostrandoArea ? 140 : 260 }
+                    NumberAnimation { duration: bar.mostrandoArea ? 140 : 260 ; easing.type: Theme.curva }
                 }
             }
 

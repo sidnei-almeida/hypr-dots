@@ -122,7 +122,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.round(34 * Theme.scale)
-            radius: Math.round(8 * Theme.scale)
+            radius: Theme.raioM
             color: PraxeConfig.colBgPuro
             opacity: 0.55
 
@@ -192,13 +192,13 @@ Item {
 
                 Rectangle {
                     anchors.fill: parent
-                    radius: Math.round(8 * Theme.scale)
+                    radius: Theme.raioM
                     color: PraxeConfig.colAccent
                     // Só o item sob o teclado ou sob o mouse recebe fundo:
                     // uma lista inteira com caixas atrás vira uma escada de
                     // retângulos e o nome do app deixa de ser o que se lê.
                     opacity: parent.marcado ? 0.20 : (sonda.hovered ? 0.10 : 0)
-                    Behavior on opacity { NumberAnimation { duration: 100 } }
+                    Behavior on opacity { NumberAnimation { duration: 100 ; easing.type: Theme.curva } }
                 }
 
                 RowLayout {
@@ -256,10 +256,10 @@ Item {
 
                 Rectangle {
                     anchors.fill: parent
-                    radius: Math.round(7 * Theme.scale)
+                    radius: Theme.raioP
                     color: PraxeConfig.colFg
                     opacity: btHover.hovered ? 0.12 : 0
-                    Behavior on opacity { NumberAnimation { duration: 100 } }
+                    Behavior on opacity { NumberAnimation { duration: 100 ; easing.type: Theme.curva } }
                 }
                 Text {
                     anchors.centerIn: parent
