@@ -120,79 +120,30 @@ PanelWindow {
     // ── Tinta dos ícones ────────────────────────────────────────
     //
     // Quanto os ícones puxam para uma cor só, para o dock parecer um
-    // conjunto em vez de uma prateleira de logotipos alheios. A conta é
-    // direta: 0..100 vira 0..1 sem teto.
+    // conjunto em vez de uma prateleira de logotipos alheios.
     //
-    // Teve um teto de 0.65 aqui, para "não achatar demais". Estava errado
-    // na prática: com o padrão de 30 a colorização saía em 0,195 e o
-    // efeito era invisível — parecia quebrado, e de fato não servia para
-    // nada. Quem decide a força é o usuário, e ele precisa poder chegar
-    // ao fim da escala.
-    readonly property real forcaTinta:
-        Math.max(0, Math.min(100, PraxeConfig.dockTinta)) / 100
-
-    // Vazio = acompanha o acento do tema, que é o comportamento que faz
-    // o dock seguir a troca de tema sem ninguém mexer em nada.
-    readonly property color corTinta:
-        PraxeConfig.dockTintaCor !== "" ? PraxeConfig.dockTintaCor
-                                        : PraxeConfig.colAccent
+    // A CONTA MUDOU DE CASA: mora no PraxeConfig, junto com a adequação,
+    // porque a fileira de apps abertos da cápsula (Tarefas.qml) usa
+    // exatamente o mesmo tratamento. Duas cópias da fórmula é como o dock
+    // e a cápsula acabariam com ícones diferentes na mesma tela depois de
+    // alguém mexer num preset. Os controles continuam sendo os do dock —
+    // é ele quem configura, a cápsula só copia.
+    //
+    // Estes dois nomes ficam como atalho local: são lidos em uma dúzia de
+    // pontos deste arquivo, e trocar todos por `PraxeConfig.` só deixaria
+    // as linhas mais longas.
+    readonly property real  forcaTinta: PraxeConfig.tintaIcones
+    readonly property color corTinta:   PraxeConfig.corTintaIcones
 
     // ── Adequação ao tema ────────────────────────────────────────────
     //
-    // Isto é coisa DIFERENTE da tinta, e vale registrar por quê — a
-    // confusão entre as duas é fácil de repetir.
-    //
-    // A tinta é `colorization`, que puxa matiz e saturação para a cor
-    // escolhida PRESERVANDO A LUMINÂNCIA. É essa preservação que mantém o
-    // ícone legível em vez de virar silhueta. Consequência: a tinta NUNCA
-    // escurece. Pedir tinta preta só dessatura, porque preto não tem
-    // matiz — o ícone sai cinza com exatamente o brilho de antes. Foi por
-    // isso que preto nunca entrou na paleta: seria um botão que promete
-    // uma coisa e faz outra.
-    //
-    // Quem escurece é `brightness`; quem tira cor é `saturation`. São os
-    // dois eixos que faltavam para o dock "combinar com o tema" em vez de
-    // só "ficar mais colorido". O MultiEffect já tem os dois, então não
-    // troca de efeito: são duas linhas a mais no mesmo nó.
-    //
-    // Presets, e não sliders soltos: o que se quer aqui é um resultado
-    // ("mais discreto"), não calibrar dois números no olho.
-
-    // O brilho segue o TEMA, não uma direção fixa. No escuro os ícones
-    // descem em direção ao fundo; no claro, sobem. O alvo é sempre
-    // encostar no papel — escurecer um ícone sobre fundo branco faria o
-    // oposto do pedido, que é integrar.
-    readonly property real sentidoAdequacao: PraxeConfig.temaClaro ? -1 : 1
-
-    // A força escala os DOIS eixos junto, e não um só.
-    //
-    // O preset define o caráter (quanto de cor sai em relação a quanto de
-    // brilho desce); a força diz o quanto daquilo aplicar. Separar em dois
-    // controles deixaria montar combinações que nenhum preset previu — e aí
-    // "Escuro a 50%" não seria mais Escuro, seria um quinto preset anônimo.
-    readonly property real forcaAdequacao:
-        Math.max(0, Math.min(100, PraxeConfig.dockAdequacaoForca)) / 100
-
-    readonly property real satBase: {
-        switch (PraxeConfig.dockAdequacao) {
-            case "suave":  return -0.40
-            case "escuro": return -0.70
-            case "mono":   return -1.00
-        }
-        return 0
-    }
-
-    readonly property real brilhoBase: {
-        switch (PraxeConfig.dockAdequacao) {
-            case "suave":  return -0.15 * sentidoAdequacao
-            case "escuro": return -0.35 * sentidoAdequacao
-            case "mono":   return -0.20 * sentidoAdequacao
-        }
-        return 0
-    }
-
-    readonly property real satIcone:    satBase    * forcaAdequacao
-    readonly property real brilhoIcone: brilhoBase * forcaAdequacao
+    // Coisa DIFERENTE da tinta, e a confusão entre as duas é fácil de
+    // repetir: a tinta troca a MATIZ, a adequação tira COR e encosta o
+    // ícone no papel. A fórmula, os presets e o porquê de os dois eixos
+    // escalarem juntos estão no PraxeConfig, ao lado da tinta — pelo mesmo
+    // motivo: a cápsula usa o mesmo tratamento.
+    readonly property real satIcone:    PraxeConfig.satIcones
+    readonly property real brilhoIcone: PraxeConfig.brilhoIcones
 
     visible: ligado
     screen: Quickshell.screens[0] ?? null

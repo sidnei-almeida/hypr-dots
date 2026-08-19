@@ -214,7 +214,12 @@ ShellRoot {
             onTriggered: bar.mouseDentro = false
         }
 
-        readonly property bool ocupada: expandido || emOsd || emBalao
+        // O menu de janelas entra aqui porque ele vive numa superfície
+        // PRÓPRIA: o ponteiro dentro dele não é ponteiro na cápsula, então
+        // a carência corre, `mouseDentro` cai e a barra colapsa por baixo
+        // de um menu que continua na tela — órfão, ancorado num ícone que
+        // não existe mais. Ocupada é exatamente o que ela está.
+        readonly property bool ocupada: expandido || emOsd || emBalao || tarefas.menuAberto
 
         // "hover": some quase por completo, vira um filete
         // O `isPill` é a novidade, e é uma regra de identidade, não de
@@ -784,6 +789,21 @@ GridLayout {
                     id: areas
                     Layout.alignment: bar.vertical ? Qt.AlignHCenter : Qt.AlignVCenter
                     visible: PraxeConfig.showWorkspaces && !bar.compacto
+                }
+
+                // Os aplicativos abertos, logo depois das áreas — o par
+                // "onde estou / o que está aberto" é a leitura da esquerda
+                // da cápsula, e separá-los poria a mídia no meio de uma
+                // pergunta e a resposta dela.
+                //
+                // Fora do vertical: a fileira é horizontal por natureza, e
+                // empilhada ela viraria uma coluna de ícones do tamanho do
+                // dock — outra peça, não esta.
+                Sep { visible: bar.isPill && PraxeConfig.showTarefas && tarefas.apps.length > 0 && !bar.compacto && !bar.vertical }
+                Tarefas {
+                    id: tarefas
+                    Layout.alignment: Qt.AlignVCenter
+                    visible: PraxeConfig.showTarefas && !bar.compacto && !bar.vertical
                 }
                 Spacer {}
                 Sep { visible: bar.isPill && media.active && !bar.compacto && !bar.vertical }
