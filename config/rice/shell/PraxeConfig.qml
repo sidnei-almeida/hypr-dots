@@ -144,6 +144,9 @@ Singleton {
             property bool showMenuDot: true
             property bool showWorkspaces: true
             property bool showTarefas: true
+            // "todos" = um ícone por app aberto; "foco" = só o app em
+            // evidência. Ver a nota em Tarefas.qml.
+            property string tarefasModo: "todos"
             property bool showMedia: true
             property bool showResources: true
             property bool showVolume: true
@@ -319,6 +322,7 @@ Singleton {
     readonly property bool showMenuDot:    cfg.showMenuDot    ?? true
     readonly property bool showWorkspaces: cfg.showWorkspaces ?? true
     readonly property bool showTarefas:    cfg.showTarefas    ?? true
+    readonly property string tarefasModo:  cfg.tarefasModo    ?? "todos"
     readonly property bool showMedia:      cfg.showMedia      ?? true
     readonly property bool showResources:  cfg.showResources  ?? true
     readonly property bool showVolume:     cfg.showVolume     ?? true
