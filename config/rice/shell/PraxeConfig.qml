@@ -143,6 +143,7 @@ Singleton {
 
             property bool showMenuDot: true
             property bool showWorkspaces: true
+            property bool showTarefas: true
             property bool showMedia: true
             property bool showResources: true
             property bool showVolume: true
@@ -317,6 +318,7 @@ Singleton {
 
     readonly property bool showMenuDot:    cfg.showMenuDot    ?? true
     readonly property bool showWorkspaces: cfg.showWorkspaces ?? true
+    readonly property bool showTarefas:    cfg.showTarefas    ?? true
     readonly property bool showMedia:      cfg.showMedia      ?? true
     readonly property bool showResources:  cfg.showResources  ?? true
     readonly property bool showVolume:     cfg.showVolume     ?? true
@@ -448,4 +450,77 @@ Singleton {
     readonly property color colAccent: _ou(cfg.barAccent, Theme.accent)
     readonly property color colMuted:  _ou(cfg.barMuted,  Theme.muted)
     readonly property color colDim:    _ou(cfg.barDim,    Theme.dim)
+
+    // ── Tratamento dos ícones de aplicativo ─────────────────────
+    //
+    // A conta mora AQUI, e não no Dock.qml onde nasceu, porque agora ela
+    // vale para dois lugares: o dock e a fileira de apps abertos da
+    // cápsula (Tarefas.qml). Se cada um calculasse o seu, bastaria mexer
+    // num preset para os ícones do dock e os da cápsula ficarem com
+    // tratamentos diferentes na mesma tela — que é a divergência que o
+    // Theme.qml documenta ter acontecido com as durações de animação.
+    //
+    // Quem configura é o dock (painel de aparência, chaves `dock*` do
+    // pill.json). A cápsula não ganhou controles próprios de propósito:
+    // dois conjuntos de sliders para o mesmo resultado visual é como se
+    // criam duas aparências que ninguém queria.
+    //
+    // São DOIS eixos diferentes, e confundi-los é fácil:
+    //
+    //   TINTA (`colorization` + `colorizationColor`) puxa a MATIZ para
+    //   uma cor só, preservando a luminância — o desenho do ícone
+    //   continua legível, não vira silhueta chapada. É o que faz uma
+    //   pasta azul e um globo verde conviverem sem parecerem colados de
+    //   fora.
+    //
+    //   ADEQUAÇÃO (`saturation` + `brightness`) tira cor e encosta o
+    //   ícone no papel. O preset define o caráter, a força diz quanto
+    //   aplicar — os dois eixos escalam JUNTO, senão "Escuro a 50%"
+    //   viraria um quinto preset anônimo.
+    //
+    // Em 0 tudo é passagem limpa, então não há ramificação: o caminho no
+    // MultiEffect é sempre o mesmo.
+
+    // 0..100 vira 0..1 sem teto. Teve um teto de 0.65 aqui para "não
+    // achatar demais", e estava errado na prática: com o padrão de 30 a
+    // colorização saía em 0,195, o efeito era invisível e parecia
+    // quebrado. Quem decide a força é o usuário, e ele precisa poder
+    // chegar ao fim da escala.
+    readonly property real tintaIcones:
+        Math.max(0, Math.min(100, dockTinta)) / 100
+
+    // Vazio = acompanha o acento do tema, que é o que faz os ícones
+    // seguirem a troca de tema sem ninguém mexer em nada.
+    readonly property color corTintaIcones:
+        dockTintaCor !== "" ? dockTintaCor : colAccent
+
+    // O brilho segue o TEMA, não uma direção fixa. No escuro os ícones
+    // descem em direção ao fundo; no claro, sobem. O alvo é sempre
+    // encostar no papel — escurecer um ícone sobre fundo branco faria o
+    // oposto do pedido, que é integrar.
+    readonly property real _sentidoAdequacao: temaClaro ? -1 : 1
+
+    readonly property real _forcaAdequacao:
+        Math.max(0, Math.min(100, dockAdequacaoForca)) / 100
+
+    readonly property real _satBase: {
+        switch (dockAdequacao) {
+            case "suave":  return -0.40
+            case "escuro": return -0.70
+            case "mono":   return -1.00
+        }
+        return 0
+    }
+
+    readonly property real _brilhoBase: {
+        switch (dockAdequacao) {
+            case "suave":  return -0.15 * _sentidoAdequacao
+            case "escuro": return -0.35 * _sentidoAdequacao
+            case "mono":   return -0.20 * _sentidoAdequacao
+        }
+        return 0
+    }
+
+    readonly property real satIcones:    _satBase    * _forcaAdequacao
+    readonly property real brilhoIcones: _brilhoBase * _forcaAdequacao
 }

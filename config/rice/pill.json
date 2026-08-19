@@ -12,6 +12,7 @@
   "clockFormat": "HH:mm",
   "showMenuDot": true,
   "showWorkspaces": true,
+  "showTarefas": true,
   "showMedia": true,
   "showResources": true,
   "showVolume": true,
