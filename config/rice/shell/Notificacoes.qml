@@ -57,6 +57,47 @@ Singleton {
     // interromper, não sobre esconder que houve algo.
     property int naoVistas: 0
 
+    // ── Índice id → Notification, FORA do model ─────────────────
+    //
+    // O objeto da notificação NUNCA pode viver dentro do mapa que vai
+    // para o `model`. Ali ele deixa de ser referência de JS e vira valor
+    // de QVariantMap — ponteiro cru, sem ninguém avisando quando o alvo
+    // morre. Pior: o Qt 6.9 em diante converte esse valor para JS só no
+    // instante em que o delegate INCUBA, e não na hora em que a lista foi
+    // montada. A conversão de um ponteiro já liberado derruba o
+    // Quickshell inteiro, sempre com esta pilha:
+    //   QQmlVMEMetaObject::writeKnownVarProperty
+    //     -> VariantAssociationPrototype::fromQVariantMap
+    //       -> ExecutionEngine::fromData        <- SIGSEGV
+    // que é, byte a byte, o coredump de 07, 08, 13, 14 e 16/08 — todos
+    // com a ListView de notificações do ControlCenter no meio.
+    //
+    // O que fecha a janela de risco é `tracked = false` DESTRUIR EM
+    // DIFERIDO (deleteLater). A morte não acontece na linha que a pede:
+    // acontece na volta seguinte do laço de eventos, quando um refill da
+    // ListView já pode estar no ar com a fotografia ANTIGA do model. Foi
+    // isso que fez o bug parecer aleatório e sempre colado a "fechei uma
+    // janela": qualquer coisa que mude a largura da barra (o Tarefas
+    // encolhendo quando um app fecha) força o refill.
+    //
+    // Reproduzido em 17/08 matando os objetos e alternando o painel logo
+    // em seguida: com `objeto` no mapa cai na hora, sem ele aguenta o
+    // mesmo teste repetido. Aqui a referência mora num objeto JS comum, e
+    // aí ela é um QObjectWrapper do QV4 — que SABE quando o alvo morre. É
+    // a mesma diferença entre ponteiro cru e QPointer. Ver a nota longa
+    // no Dock.qml, que descreve o mesmo acidente com DesktopEntry.
+    property var vivos: ({})
+
+    // Solta UMA notificação pelo id: destrói o objeto e some com a
+    // referência. Nunca chame com o item do model em mãos — é o id que
+    // manda, porque o item é só texto.
+    function soltar(id) {
+        const n = vivos[id]
+        if (!n) return
+        delete vivos[id]
+        n.tracked = false
+    }
+
     NotificationServer {
         id: servidor
         keepOnReload: false
@@ -75,6 +116,9 @@ Singleton {
     }
 
     function registrar(n) {
+        // SÓ TEXTO E NÚMERO. Nada de `objeto: n` aqui — ver a nota do
+        // índice `vivos` lá em cima; foi essa linha que derrubava a barra
+        // quando a Steam abria.
         const item = {
             id: n.id,
             app: n.appName ?? "",
@@ -83,31 +127,29 @@ Singleton {
             imagem: n.image ?? "",
             icone: n.appIcon ?? "",
             urgencia: n.urgency,
-            quando: new Date(),
-            objeto: n
+            quando: new Date()
         }
+
+        // Id repetido é normal: o `replaces_id` do protocolo reaproveita o
+        // número. Se já houver alguém guardado com esse id e não for este
+        // objeto, ele é órfão — ninguém mais consegue soltá-lo depois, e
+        // ficaria `tracked` para sempre. Solta agora.
+        const anterior = vivos[n.id]
+        if (anterior && anterior !== n) anterior.tracked = false
+        vivos[n.id] = n
 
         // ORDEM IMPORTA: publica a lista nova ANTES de soltar os velhos.
         //
-        // `tracked = false` DESTRÓI a notificação. Se ela fosse solta antes
-        // do `lista = nova`, existiria um instante em que a lista publicada
-        // — que é o model do painel — ainda teria um item cujo `objeto` é
-        // ponteiro para memória liberada. Um delegate incubando nesse
-        // intervalo derruba o Quickshell inteiro: é o mesmo SIGSEGV em
-        // fromQVariantMap que o dock causava (ver a nota longa no Dock.qml).
-        //
-        // Hoje o intervalo é curto e síncrono, então isso é cinto de
-        // segurança e não conserto de bug observado. Mas a ordem certa é
-        // de graça, e a errada só dá as caras sob carga.
+        // `tracked = false` DESTRÓI a notificação. O model já não guarda
+        // ponteiro nenhum, mas o `vivos` guarda, e um binding do painel
+        // pode estar lendo por lá no mesmo quadro. Publicar primeiro deixa
+        // a lista coerente antes de qualquer objeto sumir.
         const nova = lista.slice()
         nova.unshift(item)
         const soltar = []
-        while (nova.length > maximo) {
-            const velho = nova.pop()
-            if (velho.objeto) soltar.push(velho.objeto)
-        }
+        while (nova.length > maximo) soltar.push(nova.pop().id)
         lista = nova
-        for (const o of soltar) o.tracked = false
+        for (const id of soltar) root.soltar(id)
         naoVistas = naoVistas + 1
 
         if (!silencioso) {
@@ -125,13 +167,13 @@ Singleton {
     }
 
     // Esvazia a lista PRIMEIRO, solta os objetos depois — mesma razão da
-    // nota em `registrar()`: soltar antes deixaria o painel com ponteiros
-    // mortos no model por um instante.
+    // nota em `registrar()`: com a lista já publicada vazia, nenhum
+    // binding do painel ainda está olhando para o que vai morrer.
     function limpar() {
-        const soltar = lista
+        const mortos = lista
         lista = []
         dispensarAtual()
-        for (const it of soltar) if (it.objeto) it.objeto.tracked = false
+        for (const it of mortos) root.soltar(it.id)
         naoVistas = 0
     }
 
