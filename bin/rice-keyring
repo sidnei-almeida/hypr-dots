@@ -46,6 +46,24 @@
 # Nada disso enfraquece o cofre: ele continua criptografado com uma
 # senha. O que muda é QUEM a digita — você, na tela de bloqueio, em vez
 # de um pedido avulso do navegador.
+#
+# ── O CAMINHO ALTERNATIVO: SENHA VAZIA ──────────────────────────
+#
+# Cofre com senha vazia destrava sozinho quando o daemon sobe, e aí
+# nada disso acima importa — nem o PAM, nem a corrida do arranque
+# (aquele diálogo que nasce embaixo do hyprlock, porque um applet do
+# autostart pede o cofre antes de você digitar a senha).
+#
+# O preço é real e não é pequeno: o gnome-keyring passa a gravar o
+# cofre em TEXTO PURO. Senha de navegador, token do VS Code e senha de
+# RDP ficam legíveis para qualquer processo seu e para qualquer backup
+# que passe por ~/.local/share/keyrings. Não é "menos criptografia": é
+# nenhuma.
+#
+# Não dá para fazer isso por script — trocar a senha do cofre exige a
+# senha ATUAL, e só você a tem. É no Seahorse ("Senhas e chaves"),
+# botão direito no cofre `login` → Alterar senha → deixar em branco.
+# O diagnóstico abaixo diz em qual dos dois modos o cofre está.
 
 set -uo pipefail
 
@@ -99,6 +117,47 @@ diagnostico() {
         ok "o gnome-keyring está rodando"
     else
         nao "o gnome-keyring não está rodando (nada a destravar)"
+    fi
+
+    # Cofre com senha VAZIA é gravado em texto puro, num INI que começa
+    # com [keyring]; com senha, o arquivo é binário e começa com a
+    # assinatura "GnomeKeyring". Distinguir importa porque os dois modos
+    # se excluem: com senha vazia o daemon destrava sozinho no arranque e
+    # a linha do PAM deixa de ter função — ela tenta a senha do usuário,
+    # não acha correspondência, e o journal passa a dizer "invalid". Sem
+    # consequência, mas é ruído que se confunde com defeito.
+    if [[ -f $KDIR/login.keyring ]]; then
+        if [[ $(head -c 9 "$KDIR/login.keyring" 2>/dev/null) == '[keyring]' ]]; then
+            info "o cofre está com SENHA VAZIA: destrava sozinho, e os"
+            info "segredos ficam em texto puro em $KDIR/login.keyring"
+        else
+            ok "o cofre está criptografado (tem senha)"
+        fi
+    fi
+
+    # A corrida do arranque — o problema que SOBRA depois de o PAM estar
+    # certo, e que se confunde com ele.
+    #
+    # No segundo zero da sessão algum aplicativo do autostart pede o
+    # Secret Service pelo D-Bus. O cofre ainda está trancado, porque o
+    # hyprlock só destrava quando VOCÊ digita — dezenas de segundos
+    # depois. Aí o gnome-keyring abre um diálogo do gcr-prompter que fica
+    # preso embaixo da tela de bloqueio até o desbloqueio cancelá-lo.
+    #
+    # O HORÁRIO do pedido é o que separa os dois casos: no arranque é a
+    # corrida; no meio do dia é o PAM que não está destravando.
+    local prompts ultimo
+    prompts=$(journalctl --no-pager 2>/dev/null |
+              grep -c 'Gcr: starting password prompt') || true
+    if [[ ${prompts:-0} -eq 0 ]]; then
+        ok "nenhum pedido de senha do cofre no journal"
+    else
+        ultimo=$(journalctl -b --no-pager -o short-iso 2>/dev/null |
+                 grep 'Gcr: starting password prompt' | tail -1 | cut -d' ' -f1)
+        info "$prompts pedido(s) de senha do cofre no journal"
+        [[ -n ${ultimo:-} ]] &&
+            info "o último deste boot: $ultimo — compare com a hora do login"
+        info "detalhe:  journalctl | grep -E 'Gcr: (starting|completed) password prompt'"
     fi
 
     echo
