@@ -1,5 +1,21 @@
-// Áreas de trabalho como pontos. A ativa vira uma pill alongada —
-// é a própria linguagem da barra se repetindo lá dentro.
+// Áreas de trabalho como DÍGITOS. A ativa ganha uma cápsula de acento
+// apertada em volta do número — a própria linguagem da barra se repetindo
+// lá dentro, no menor tamanho em que ela ainda se lê.
+//
+// ── POR QUE SAIU O PONTO ────────────────────────────────────────
+//
+// A régua era de pontos, com a ativa virando uma pill alongada e sem
+// número. Funcionava e era discreta, mas dizia uma coisa só: "você está
+// na terceira posição". Para saber QUAL área é a terceira era preciso
+// contar — e contar é exatamente o trabalho que um indicador existe para
+// poupar.
+//
+// O dígito diz posição e identidade no mesmo espaço, porque o número é o
+// nome da área. Cinco dígitos de 9px ocupam praticamente a mesma largura
+// que cinco pontos de 7px com as folgas que eles precisavam.
+//
+// A altura CAIU: a pill da ativa tinha 15px quando carregava número, e
+// agora a fileira inteira tem ~14 e nada mais salta dela.
 import Quickshell
 import Quickshell.Hyprland
 import QtQuick
@@ -12,8 +28,19 @@ GridLayout {
     flow: PraxeConfig.vertical ? GridLayout.TopToBottom : GridLayout.LeftToRight
     columns: PraxeConfig.vertical ? 1 : -1
     rows:    PraxeConfig.vertical ? -1 : 1
-    rowSpacing: Theme.itemGap
-    columnSpacing: Theme.itemGap
+    // Espaçamento PRÓPRIO, menor que o `Theme.itemGap` que separa os
+    // módulos da cápsula.
+    //
+    // O itemGap (7px) foi calibrado para separar coisas diferentes — o
+    // relógio do volume, o logo das áreas. Entre dígitos da MESMA régua
+    // ele é folga demais: com a folga interna de cada item somando mais
+    // 4, davam 11px de vão entre glífos de 9px, e a régua deixava de ler
+    // como uma coisa só para virar cinco números soltos.
+    //
+    // Proximidade é o que agrupa. Ver a nota do `Sep` no shell.qml, que
+    // é o mesmo raciocínio um nível acima.
+    rowSpacing: Math.round(2 * Theme.scale)
+    columnSpacing: Math.round(2 * Theme.scale)
 
     // Piso, não teto: `PraxeConfig.workspaces` diz quantos pontos ficam
     // SEMPRE à vista, mesmo vazios. Acima disso a fileira acompanha o
@@ -102,7 +129,7 @@ GridLayout {
         // longa sobre isso está no Dock.qml.
         model: root.lista
 
-        delegate: Rectangle {
+        delegate: Item {
             id: dot
             required property int modelData
             required property int index
@@ -119,7 +146,7 @@ GridLayout {
             // que ele já destruiu por ter esvaziado.
             readonly property bool fantasma: !dot.ws
 
-            // Descontinuidade em relação ao ponto anterior — é onde o
+            // Descontinuidade em relação ao item anterior — é onde o
             // traço de salto entra. Só acontece acima do teto.
             readonly property bool salto: index > 0
                                           && root.lista[index - 1] !== wsId - 1
@@ -128,167 +155,106 @@ GridLayout {
             Layout.leftMargin: (!PraxeConfig.vertical && salto) ? root.folgaSalto : 0
             Layout.topMargin:  (PraxeConfig.vertical && salto)  ? root.folgaSalto : 0
 
-            // A ativa é uma pill com o número dentro; as outras são
-            // pontos. O número só aparece na ativa porque é a única
-            // informação que muda: saber que existe uma área 7 importa
-            // menos do que saber que é NELA que você está. Numerar todas
-            // trocaria a fileira de pontos por uma fileira de dígitos, que
-            // é outro desenho de barra.
+            // ── A GEOMETRIA SAI DO DÍGITO ───────────────────────
             //
-            // A largura sai do texto e não de um número fixo: "12" é mais
-            // largo que "8" e ficaria cortado numa pill de tamanho cravado.
-            // ── Ponto menor no modo barra ────────────────────
+            // Nada de largura cravada: "10" é mais largo que "3" e ficaria
+            // cortado numa caixa de tamanho fixo. Foi por isso que a pill
+            // antiga já media o texto — a diferença é que agora TODOS
+            // medem, não só a ativa.
             //
-            // Na CÁPSULA os pontos são poucos (o piso costuma ser 5) e
-            // dividem uma peça curta: ali eles precisam de corpo para serem
-            // alvo de clique e para a fileira não sumir.
+            // Duas folgas, e é só isso que separa ativa de inativa:
             //
-            // Na BARRA são sempre DEZ, numa régua que agora ocupa um pedaço
-            // visível do topo. O mesmo tamanho que ficava bem em cinco vira
-            // peso demais em dez — a fileira passa a competir com o resto da
-            // barra em vez de ser o pano de fundo dela.
+            //   ativa    folga larga, porque a cápsula precisa de ar em
+            //            volta do dígito para ler como cápsula e não como
+            //            um retângulo encostado no número.
             //
-            // O que NÃO encolhe é o piso de forma da ativa: ele existe para
-            // a pill continuar sendo alongada em vez de virar círculo, e um
-            // dígito de ~10px precisa de altura para não ser cortado. Por
-            // isso 14 e não 12.
-            readonly property bool naBarra: PraxeConfig.layout === "bar" && !PraxeConfig.vertical
+            //   inativa  folga estreita, só o bastante para os dígitos não
+            //            se tocarem. Não há nada desenhado ali para dar ar.
+            //
+            // A ALTURA É A MESMA PARA TODOS, e é o que faz a fileira ser
+            // uma linha reta em vez de ter um caroço no meio. Era esse o
+            // defeito do desenho anterior, quando a pill com número tinha
+            // o dobro da altura dos pontos.
+            readonly property int folgaH: Math.round((isActive ? 9 : 4) * Theme.scale)
 
-            // ── QUANDO O DÍGITO GANHA O ESPAÇO DELE ─────────────
-            //
-            // Só quando a POSIÇÃO MENTE, e ela mente num caso só.
-            //
-            // A régua é contígua de 1 até a maior área em uso dentro do
-            // teto: o ponto na posição N é a área N, sempre. O dígito
-            // resolvia a ambiguidade do desenho ANTIGO, em que a fileira
-            // pulava números e ir para a 6, 8 ou 12 dava a mesma figura.
-            // Com a régua contígua ele passou a repetir, dentro de uma
-            // pill que custa o DOBRO da altura dos pontos, o que a posição
-            // já dizia de graça. Era esse o caroço no meio da linha.
-            //
-            // Acima do teto a coisa muda: a área 12 aparece avulsa depois
-            // do traço de salto, e ali a posição realmente não diz o
-            // número. Aí o dígito é a única informação disponível e vale a
-            // altura que cobra.
-            //
-            // Só na ATIVA: saber que existe uma área longínqua importa
-            // menos do que saber que é nela que você está, e numerar todas
-            // as avulsas traria de volta a fileira de dígitos.
-            readonly property bool comNumero: isActive && wsId > root.teto
-
-            // ── A ALTURA É A MESMA PARA TODOS. ──────────────────
-            //
-            // Era isto que fazia a fileira parecer grosseira: a área ativa
-            // tinha 16px de altura contra 8px dos pontos, o dobro. Uma
-            // fileira com um caroço no meio deixa de ser uma linha.
-            //
-            // O indicador ativo agora é mais LONGO, nunca mais alto — o
-            // princípio do indicador de página do iOS. A régua continua
-            // sendo uma linha reta e a ativa se lê pelo comprimento e pela
-            // cor, que é informação de sobra.
-            //
-            // ── E o número sai no modo barra ────────────────────
-            //
-            // Ele existia porque o Hyprland destrói área vazia: sem as dez
-            // sempre à vista, ir para a 6, 8 ou 12 dava a MESMA figura e a
-            // posição deixava de significar o número.
-            //
-            // Em modo barra isso não vale mais: o piso subiu para o teto e a
-            // régua é contígua de 1 a 10, então a posição já diz qual é. O
-            // dígito passou a resolver um problema que não existe ali, ao
-            // custo de dobrar a altura da peça inteira.
-            //
-            // Na CÁPSULA ele fica: lá a régua é curta e pode começar em
-            // qualquer ponto, e sem o número a ambiguidade volta.
-            Layout.preferredWidth: PraxeConfig.vertical
-                ? Math.round((isActive ? 18 : 7) * Theme.scale)
-                : (isActive
-                     ? (comNumero
-                          // Com dígito: piso de FORMA, para a pill de um
-                          // dígito não virar círculo. Dois dígitos passam
-                          // disso sozinhos.
-                          ? Math.max(Math.round(22 * Theme.scale),
-                                     Math.round(numero.implicitWidth + 11 * Theme.scale))
-                          // Sem dígito: comprimento fixo, ~3x o ponto. É o
-                          // indicador de página do iOS — mais LONGO, e a
-                          // linha continua reta.
-                          : Math.round((naBarra ? 20 : 22) * Theme.scale))
-                     : Math.round((naBarra ? 6 : 7) * Theme.scale))
-            Layout.preferredHeight: PraxeConfig.vertical
-                ? (isActive ? Math.max(Math.round(22 * Theme.scale),
-                                       Math.round(numero.implicitHeight + 8 * Theme.scale))
-                            : Math.round(7 * Theme.scale))
-                // MESMA ALTURA para ativo e inativo, nos dois modos. A
-                // fileira é uma linha reta de ponta a ponta, e a ativa se lê
-                // pelo comprimento e pela cor — informação de sobra. A
-                // exceção é a pill que carrega dígito, que precisa de corpo
-                // para o número caber; e ela só aparece acima do teto, onde
-                // o traço de salto já quebrou a linha de qualquer forma.
-                : (comNumero ? Math.round(15 * Theme.scale)
-                             : Math.round((naBarra ? 6 : 7) * Theme.scale))
-            radius: height / 2
-
-            // Fantasma fica em DIM, a mesma cor da área existente e vazia:
-            // as duas são, para quem olha, a mesma coisa — lugar sem nada.
-            // Distingui-las com uma terceira cor seria informação sobre a
-            // contabilidade interna do compositor, não sobre o trabalho.
-            // Os inativos recuam pelo ALFA DA COR, não por `opacity`.
-            //
-            // A tentação era `opacity: isActive ? 1 : 0.45`, e ela quebra:
-            // este mesmo retângulo já usa `opacity` para a animação de
-            // ENTRADA (nasce em 0 e sobe no Component.onCompleted, lá
-            // embaixo). Dois interceptadores na mesma propriedade não se
-            // somam — o QML avisa "another interceptor... unsupported" e
-            // ignora um deles, então ou a entrada ou o recuo deixaria de
-            // funcionar, sem ficar claro qual.
-            //
-            // Pelo alfa não há conflito: é a cor, que já tem o seu próprio
-            // Behavior logo abaixo, e as duas coisas convivem.
-            color: {
-                if (isActive) return PraxeConfig.colAccent
-                const c = hasWindows ? PraxeConfig.colMuted : PraxeConfig.colDim
-                return Qt.rgba(c.r, c.g, c.b, hasWindows ? 0.85 : 0.45)
-            }
+            Layout.preferredWidth:  Math.round(numero.implicitWidth) + folgaH
+            Layout.preferredHeight: Math.round(numero.implicitHeight)
+                                  + Math.round(4 * Theme.scale)
 
             // Mesmo tempo da cápsula que os contém. Ver Theme.animForma.
             Behavior on Layout.preferredWidth {
                 NumberAnimation { duration: Theme.animForma; easing.type: Easing.OutCubic }
             }
-            Behavior on Layout.preferredHeight {
-                NumberAnimation { duration: Theme.animForma; easing.type: Easing.OutCubic }
-            }
-            Behavior on color { ColorAnimation { duration: Theme.animForma } }
 
-            // ── O número da área ────────────────────────────────
+            // ── A cápsula da ativa ──────────────────────────────
             //
-            // A cor sai da LUMINÂNCIA do acento, não do tema: o acento é
-            // escolhido a partir do papel de parede e tanto pode ser um
-            // dourado claro quanto um vinho escuro. Cravar "texto escuro"
-            // daria número invisível na metade dos temas.
+            // Só a ativa tem forma. Dar contorno às inativas encheria a
+            // régua de cinco caixas e trocaria uma linha de números por
+            // uma fileira de botões — que é outro desenho de barra, e o
+            // mais pesado dos três que se considerou.
+            //
+            // `radius: height / 2` e não um raio do Theme: cápsula é
+            // definição de forma, não escolha de estilo. É a mesma regra
+            // que o `isPill` da barra segue.
+            Rectangle {
+                id: capsula
+                anchors.fill: parent
+                radius: height / 2
+                color: PraxeConfig.colAccent
+
+                // Pelo `opacity` daqui, e não do `dot`: o Item de fora usa
+                // opacity para a animação de ENTRADA, e dois
+                // interceptadores na mesma propriedade não se somam — o
+                // QML avisa "another interceptor... unsupported" e ignora
+                // um deles, sem deixar claro qual. A nota original sobre
+                // isso está na entrada, lá embaixo.
+                opacity: dot.isActive ? 1 : 0
+                visible: opacity > 0
+
+                Behavior on opacity { NumberAnimation { duration: Theme.animForma ; easing.type: Theme.curva } }
+                Behavior on color   { ColorAnimation  { duration: Theme.animForma } }
+            }
+
+            // ── O número ────────────────────────────────────────
+            //
+            // Na ativa, a cor sai da LUMINÂNCIA do acento, não do tema: o
+            // acento é escolhido a partir do papel de parede e tanto pode
+            // ser um dourado claro quanto um vinho escuro. Cravar "texto
+            // escuro" daria número invisível na metade dos temas.
+            //
+            // Fora dela, DOIS pesos do mesmo `muted`, e não muted contra
+            // dim como os pontos usavam. O `colDim` foi calibrado para um
+            // ponto sólido de 7px; um glífo de 9px com hastes de 1px
+            // simplesmente desaparece nele. Área vazia continua sendo mais
+            // apagada que área com janela — o que muda é que agora as duas
+            // se leem.
             Text {
                 id: numero
                 anchors.centerIn: parent
                 text: dot.wsId
-                color: (0.299 * PraxeConfig.colAccent.r
-                      + 0.587 * PraxeConfig.colAccent.g
-                      + 0.114 * PraxeConfig.colAccent.b) > 0.5
-                       ? PraxeConfig.colBgPuro : PraxeConfig.colFg
                 font.family: Theme.fontFamily
-                font.pixelSize: Math.max(8, Theme.fontSize - 3)
-                font.weight: Font.DemiBold
+                font.pixelSize: Math.max(9, Theme.fontSize - 3)
+                font.weight: dot.isActive ? Font.DemiBold : Font.Normal
 
-                // Some junto com a pill fechando. Sem o `visible` ele
-                // continuaria compondo mesmo a zero, e são vários pontos.
-                opacity: dot.comNumero ? 1 : 0
-                visible: opacity > 0
-                Behavior on opacity { NumberAnimation { duration: 180 ; easing.type: Theme.curva } }
+                color: {
+                    if (dot.isActive)
+                        return (0.299 * PraxeConfig.colAccent.r
+                              + 0.587 * PraxeConfig.colAccent.g
+                              + 0.114 * PraxeConfig.colAccent.b) > 0.5
+                               ? PraxeConfig.colBgPuro : PraxeConfig.colFg
+                    const c = PraxeConfig.colMuted
+                    return Qt.rgba(c.r, c.g, c.b, dot.hasWindows ? 0.9 : 0.4)
+                }
+
+                Behavior on color { ColorAnimation { duration: Theme.animForma } }
             }
 
             // ── Traço de salto ──────────────────────────────────
             //
             // Marca que a numeração pulou (área 11 logo depois da 10, por
-            // exemplo). Sem ele a fileira mentiria: dois pontos vizinhos
-            // sempre leem como áreas vizinhas.
+            // exemplo). Com dígitos ele importa menos que importava com
+            // pontos — o número já denuncia o pulo — mas continua sendo o
+            // que separa "12 vem depois de 10" de "12 é vizinha de 10".
             //
             // Posição por x/y e não por âncoras porque o sentido muda com
             // a barra em pé — e âncora atribuída não se desfaz (a nota
@@ -311,10 +277,10 @@ GridLayout {
                                         : (dot.height - height) / 2
             }
 
-            // Entrada suave do ponto.
+            // Entrada suave.
             //
-            // Com a fileira dinâmica, um ponto pode nascer a qualquer
-            // momento — basta ir para uma área nova. Aparecer pronto, no
+            // Com a fileira dinâmica, uma área pode nascer a qualquer
+            // momento — basta ir para uma nova. Aparecer pronta, no
             // tamanho final, lê como falha de desenho; aparecer crescendo
             // lê como "surgiu agora", que é o que aconteceu. Vale também
             // para a subida da barra, em que a fileira inteira se monta.
@@ -324,9 +290,9 @@ GridLayout {
             // SEM overshoot, e é a metade do conserto do "shaky".
             //
             // Era `Easing.OutBack`, que por definição passa do alvo e volta.
-            // Num ponto que nasce uma vez isso é charme; aqui não é: o
+            // Num item que nasce uma vez isso é charme; aqui não é: o
             // Hyprland DESTRÓI área vazia, então trocar de área destrói e
-            // recria pontos o tempo todo, e cada um renascia quicando. A
+            // recria itens o tempo todo, e cada um renascia quicando. A
             // fileira inteira parecia gelatina a cada troca.
             //
             // Coisa sólida não quica ao aparecer. Cresce e para.
@@ -343,14 +309,14 @@ GridLayout {
             }
 
             // Cursor no HoverHandler, não no MouseArea — ver a nota no
-            // Resources.qml. Aqui pesa em dobro: são vários pontos, cada
+            // Resources.qml. Aqui pesa em dobro: são vários itens, cada
             // um seria um ladrão de hover.
             HoverHandler { cursorShape: Qt.PointingHandCursor }
 
             MouseArea {
                 anchors.fill: parent
-                anchors.margins: -6          // alvo de clique maior que o ponto
-                // Serve igual para ponto fantasma: o dispatcher cria a
+                anchors.margins: -6          // alvo de clique maior que o dígito
+                // Serve igual para área fantasma: o dispatcher cria a
                 // área que não existe, exatamente como a tecla faria.
                 onClicked: Hyprland.dispatch(
                     "hl.dsp.focus({ workspace = " + dot.wsId + " })")
