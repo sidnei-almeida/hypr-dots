@@ -13,6 +13,7 @@
   "showMenuDot": true,
   "showWorkspaces": true,
   "showTarefas": true,
+  "tarefasModo": "todos",
   "showMedia": true,
   "showResources": true,
   "showVolume": true,

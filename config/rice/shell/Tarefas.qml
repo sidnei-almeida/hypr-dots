@@ -150,6 +150,23 @@ Item {
     //
     // `appId` vazio é descartado: janela sem identidade não tem ícone nem
     // nome para mostrar, e um quadrado anônimo na barra só gera dúvida.
+    //
+    // ── OS DOIS MODOS (`tarefasModo` no pill.json) ──────────────
+    //
+    // "todos"  a régua inteira. É uma barra de tarefas: dá para VER o que
+    //          está aberto sem invocar nada, e clicar direto em qualquer
+    //          app. Em troca, a cápsula muda de largura toda vez que um
+    //          app abre ou fecha — e ela é centralizada, então os módulos
+    //          da direita escorregam junto.
+    //
+    // "foco"   só o app em evidência. A cápsula fica com largura estável e
+    //          o módulo vira INDICADOR em vez de comutador: some o alcance
+    //          de clicar em outro app, que passa a depender do dock ou do
+    //          teclado. O menu do botão direito continua servindo — mas só
+    //          para as janelas de quem está na frente.
+    //
+    // O que decide é para que serve a cápsula neste rice, e isso não é
+    // questão técnica. Os dois estão prontos; o pill.json escolhe.
     readonly property var apps: {
         const vistos = {}
         const saida = []
@@ -159,7 +176,18 @@ Item {
             vistos[id] = true
             saida.push(id)
         }
-        return saida
+
+        if (PraxeConfig.tarefasModo !== "foco") return saida
+
+        // No modo foco, a lista é o app em evidência — e só ele.
+        //
+        // Filtrar a lista já montada, em vez de ler `emFoco` direto, não é
+        // rodeio: garante que o id devolvido é um que EXISTE na lista de
+        // janelas. O `activeToplevel` pode apontar para algo que já saiu
+        // (janela fechando, foco em trânsito), e um id fantasma aqui daria
+        // um ícone que não abre menu nenhum.
+        const foco = raiz.emFoco
+        return saida.indexOf(foco) >= 0 ? [foco] : []
     }
 
     // O appId em foco, para marcar qual está na frente. Também string, e
